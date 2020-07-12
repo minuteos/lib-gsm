@@ -345,6 +345,9 @@ async_def()
         // signal strength and error rate
         (model == Model::SIM800 && await(AT, "+EXUNSOL=\"SQ\",1")) ||
         (model == Model::SIM7600 && await(AT, "+AUTOCSQ=1,1")) ||
+        // network info
+        (model == Model::SIM800 && await(AT, "+CIEV=1")) ||
+        (model == Model::SIM7600 && await(AT, "+CPSI=10")) ||
         false)
     {
         async_return(false);
@@ -553,6 +556,7 @@ async_def_sync()
                     rssi >= 100 && rssi <= 191 ? -116 + rssi :
                     0;
                 net.ber = ber <= 7 ? ber + 1 : 0;
+                Rssi(net.rssi);
                 MYDBG("RSSI: %d, BER: %s", net.rssi, STRINGS("UNK", "<0.01%", "<0.1%", "<0.5%", "<1%", "<2%", "<4%", "<8%", ">=8%")[net.ber]);
             }
             async_return(true);
@@ -771,6 +775,36 @@ async_def_sync()
             async_return(true);
         }
 
+        case fnv1a("+CPSI"):
+        {
+            uint32_t tmp;
+            InputFieldFnv(tmp);    // network type
+            InputFieldFnv(tmp);
+            struct N { unsigned value = 0, digits = 0; } mcc, mnc;
+            N* n = &mcc;
+            for (auto ch: Input())
+            {
+                if (ch >= '0' && ch <= '9')
+                {
+                    n->value = n->value * 10 + ch - '0';
+                    n->digits++;
+                }
+                else if (ch == '-' && n == &mcc)
+                {
+                    n = &mnc;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            if (!mcc.digits || !(mnc.digits == 2 || mnc.digits == 3))
+            {
+                MYTRACE("Invalid MCC/MNC value");
+            }
+            NetworkInfo(gsm::NetworkInfo(mcc.value, mnc.value, mnc.digits));
+            async_return(true);
+        }
         case fnv1a("+CTZV"):
         case fnv1a("+CCHSTART"):
         case fnv1a("+COPS"):

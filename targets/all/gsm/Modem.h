@@ -21,45 +21,75 @@
 namespace gsm
 {
 
+enum struct ModemStatus
+{
+    Ok,
+    PowerOnFailure,
+    AutoBaudFailure,
+    CommandError,
+};
+
+enum struct GsmStatus
+{
+    Ok,
+    NoNetwork,
+    Roaming,
+    Searching,
+};
+
+enum struct SimStatus
+{
+    Ok,
+    NotInserted,
+    Locked,
+    BadPin,
+};
+
+enum struct TcpStatus
+{
+    Ok,
+    GprsError,
+    TlsError,
+    ConnectionError,
+};
+
+class NetworkInfo
+{
+    union
+    {
+        struct
+        {
+            unsigned mcc : 10, mnc : 10, mncDigits : 4;
+        };
+        unsigned raw;
+    };
+
+public:
+    constexpr NetworkInfo(unsigned mcc, unsigned mnc, unsigned mncDigits)
+        : mcc(mcc), mnc(mnc), mncDigits(mncDigits) {}
+    constexpr NetworkInfo()
+        : raw(0) {}
+    
+    unsigned Mcc() const { return mcc; }
+    unsigned Mnc() const { return mnc; }
+    unsigned MncDigits() const { return mncDigits; }
+};
+
 class Modem
 {
 public:
-    enum struct ModemStatus
-    {
-        Ok,
-        PowerOnFailure,
-        AutoBaudFailure,
-        CommandError,
-    };
-
-    enum struct GsmStatus
-    {
-        Ok,
-        NoNetwork,
-        Roaming,
-        Searching,
-    };
-
-    enum struct SimStatus
-    {
-        Ok,
-        NotInserted,
-        Locked,
-        BadPin,
-    };
-
-    enum struct TcpStatus
-    {
-        Ok,
-        GprsError,
-        TlsError,
-        ConnectionError,
-    };
 
     Modem(io::DuplexPipe pipe, ModemOptions& options)
         : rx(pipe), tx(pipe), options(options) {}
 
-    ModemStatus ModemStatus() const { return modemStatus; }
+    enum ModemStatus ModemStatus() const { return modemStatus; }
+    enum GsmStatus GsmStatus() const { return gsmStatus; }
+    enum SimStatus SimStatus() const { return simStatus; }
+    enum TcpStatus TcpStatus() const { return tcpStatus; }
+
+    const class NetworkInfo& NetworkInfo() const { return netInfo; }
+
+    int Rssi() const { return rssi; }
 
     Timeout ATTimeout() const { return atTimeout; }
     void ATTimeout(Timeout timeout) { ASSERT(timeout.IsRelative()); atTimeout = timeout; }
@@ -122,6 +152,8 @@ protected:
     void GsmStatus(enum GsmStatus status) { gsmStatus = status; }
     void SimStatus(enum SimStatus status) { simStatus = status; }
     void TcpStatus(enum TcpStatus status) { tcpStatus = status; }
+    void NetworkInfo(const class NetworkInfo& info) { netInfo = info; }
+    void Rssi(int8_t value) { rssi = value; }
 
     void RequestProcessing() { process = true; }
 
@@ -167,10 +199,12 @@ private:
     Socket* rxSock;
     size_t rxLen = 0;
 
-    enum ModemStatus modemStatus;
-    enum GsmStatus gsmStatus;
-    enum SimStatus simStatus;
-    enum TcpStatus tcpStatus;
+    enum ModemStatus modemStatus = ModemStatus::Ok;
+    enum GsmStatus gsmStatus = GsmStatus::Ok;
+    enum SimStatus simStatus = SimStatus::Ok;
+    enum TcpStatus tcpStatus = TcpStatus::Ok;
+    class NetworkInfo netInfo = {};
+    int8_t rssi = 0;
 
     Timeout atTimeout = Timeout::Seconds(5);
     Timeout connectTimeout = Timeout::Seconds(30);
