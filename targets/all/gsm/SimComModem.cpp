@@ -515,7 +515,7 @@ async_def()
     else
     {
         // configure GPRS auth
-        if (Options().GetApnUser() || Options().GetApnPassword())
+        if (Options().GetApnUser().Length() || Options().GetApnPassword().Length())
         {
             if (await(ATFormat, "+CGAUTH=1,3,\"%b\",\"%b\"", Options().GetApnUser(), Options().GetApnPassword()))
             {
