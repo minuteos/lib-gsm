@@ -265,6 +265,10 @@ async_def(
                 for (char c: rx.Enumerate(len - 1)) _DBGCHAR(c);
                 _DBGCHAR('\n');
 #endif
+                if (Buffer buf = options.GetDiagnosticBuffer(ModemOptions::CallbackType::CommandReceive))
+                {
+                    options.DiagnosticCallback(ModemOptions::CallbackType::CommandReceive, rx.Peek(buf));
+                }
                 FNV1a hash;
                 auto start = rx.Enumerate(len - 1);
                 auto iter = start;
@@ -411,6 +415,16 @@ async_def()
 
     MYTRACE(TRACE_AT, ">> AT%b", cmd);
 
+    if (Buffer buf = options.GetDiagnosticBuffer(ModemOptions::CallbackType::CommandSend))
+    {
+        if (buf.Length() >= 2)
+        {
+            buf.Element<uint16_t>() = *(uint16_t*)"AT";
+            cmd.CopyTo(buf.RemoveLeft(2));
+            options.DiagnosticCallback(ModemOptions::CallbackType::CommandSend, buf.Left(cmd.Length() + 2));
+        }
+    }
+
     atResult = ATResult::Pending;
 
     if (await(tx.Write, "AT") != 2 ||
@@ -442,6 +456,18 @@ async_def()
     va_end(va2);
     _DBGCHAR('\n');
 #endif
+
+    if (Buffer buf = options.GetDiagnosticBuffer(ModemOptions::CallbackType::CommandSend))
+    {
+        if (buf.Length() >= 2)
+        {
+            va_list va3;
+            va_copy(va3, va);
+            buf.Element<uint16_t>() = *(uint16_t*)"AT";
+            auto res = buf.RemoveLeft(2).FormatVA(format, va3);
+            options.DiagnosticCallback(ModemOptions::CallbackType::CommandSend, Buffer(buf.Pointer(), res.end()));
+        }
+    }
 
     atResult = ATResult::Pending;
 

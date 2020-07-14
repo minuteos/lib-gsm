@@ -22,6 +22,16 @@ public:
     virtual Span GetPin() { return Span(); }
     virtual void OnPinUsed() { }
     virtual bool RemovePin() { return true; }
+
+    enum struct CallbackType
+    {
+        CommandSend,
+        CommandReceive,
+    };
+
+    virtual RES_PAIR_DECL(GetDiagnosticBuffer, CallbackType type) { return Buffer(); }
+    ALWAYS_INLINE void DiagnosticCallback(CallbackType type, Buffer data) { DiagnosticCallback(type, data.Pointer(), data.Length()); }
+    virtual void DiagnosticCallback(CallbackType type, char* data, size_t length) { }
 };
 
 }
