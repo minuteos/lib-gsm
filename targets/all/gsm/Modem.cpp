@@ -267,7 +267,7 @@ async_def(
 #endif
                 if (Buffer buf = options.GetDiagnosticBuffer(ModemOptions::CallbackType::CommandReceive))
                 {
-                    options.DiagnosticCallback(ModemOptions::CallbackType::CommandReceive, rx.Peek(buf));
+                    options.DiagnosticCallback(ModemOptions::CallbackType::CommandReceive, rx.Peek(buf.Left(len - 1)));
                 }
                 FNV1a hash;
                 auto start = rx.Enumerate(len - 1);
