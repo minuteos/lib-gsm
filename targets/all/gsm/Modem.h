@@ -69,7 +69,7 @@ public:
         : mcc(mcc), mnc(mnc), mncDigits(mncDigits) {}
     constexpr NetworkInfo()
         : raw(0) {}
-    
+
     unsigned Mcc() const { return mcc; }
     unsigned Mnc() const { return mnc; }
     unsigned MncDigits() const { return mncDigits; }
@@ -169,6 +169,8 @@ protected:
     bool InputFieldHex(int& n) { return InputFieldNum(n, 16); }
     bool InputFieldFnv(uint32_t& fnv);
     size_t InputLength() { return rx.LengthUntil(lineEnd); }
+
+    void PowerDiagnostic(ModemOptions::CallbackType type, Span msg);
 
 private:
     io::PipeReader rx;
