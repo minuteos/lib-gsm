@@ -637,9 +637,10 @@ async_def_sync()
         }
 
         case fnv1a("+CCHCLOSE"):
+        case fnv1a("+CCH_PEER_CLOSED"):
         {
             int ch, status;
-            if (InputFieldNum(ch) && InputFieldNum(status))
+            if (InputFieldNum(ch) && (hash == fnv1a("+CCH_PEER_CLOSED") || InputFieldNum(status)))
             {
                 Socket* s = FindSocket(ch, true);
                 if (!s)
