@@ -37,6 +37,15 @@ public:
     Timeout AllocateTimeout() const { return allocateTimeout; }
     void AllocateTimeout(Timeout timeout) { ASSERT(timeout.IsRelative()); allocateTimeout = timeout; }
 
+    enum struct Model
+    {
+        Unknown,
+        SIM800,
+        SIM7600,
+    };
+
+    Model DetectedModel() const { return model; }
+
 protected:
     virtual bool TryAllocateImpl(Socket& sock) final override;
     virtual async(ConnectImpl, Socket& sock) final override;
@@ -46,13 +55,6 @@ protected:
     virtual async(CloseImpl, Socket& sock) final override;
 
 private:
-    enum struct Model
-    {
-        Unknown,
-        SIM800,
-        SIM7600,
-    };
-
     enum struct Registration
     {
         None, Home, Searching, Denied, Unknown, Roaming,

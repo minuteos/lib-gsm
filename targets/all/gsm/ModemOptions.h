@@ -22,6 +22,7 @@ public:
     virtual Span GetPin() { return Span(); }
     virtual void OnPinUsed() { }
     virtual bool RemovePin() { return true; }
+    virtual bool UseFlowControl() { return true; }
 
     enum struct CallbackType
     {

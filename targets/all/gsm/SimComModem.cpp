@@ -311,10 +311,13 @@ async_def()
         MYDBG("%s detected", ModelName());
     }
 
-    MYDBG("Enabling handshaking");
-    if (!await(ATFormat, "+IFC=2,2"))
+    if (Options().UseFlowControl())
     {
-        usartRx.GetUSART().FlowControlEnable();
+        MYDBG("Enabling handshaking");
+        if (!await(ATFormat, "+IFC=2,2"))
+        {
+            usartRx.GetUSART().FlowControlEnable();
+        }
     }
 
     MYDBG("Switching to %d baud", ModelBaudRate());
