@@ -297,7 +297,10 @@ async_def(
                     case fnv1a("+CME ERROR"):
                     case fnv1a("+CMS ERROR"):
                         if (atResult == ATResult::Pending)
+                        {
                             atResult = ATResult::Error;
+                            async_yield();  // let the task sendint the command see the error
+                        }
                         else
                             MYDBG("!! Unexpected Error");
                         break;
