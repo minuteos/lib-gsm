@@ -77,6 +77,7 @@ private:
     bool removePin = false;
 
     Model model = Model::Unknown;
+    uint8_t cfun;
     struct
     {
         bool pinRequired, pinUsed, ready;
@@ -113,6 +114,7 @@ private:
     async(OnEvent, FNV1a id) override;
 
     async(OnReceiveId, FNV1a header);
+    async(OnReceivePlainIP, FNV1a header);
 };
 
 }

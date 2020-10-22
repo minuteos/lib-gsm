@@ -121,6 +121,8 @@ protected:
     void NextATResponse(AsyncDelegate<FNV1a> handler) { ASSERT(atTask == &kernel::Task::Current()); atResponse = handler; }
     //! Sets the socket from which data will ba transmitted during the AT command
     void NextATTransmit(Socket& sock, size_t len) { ASSERT(atTask == &kernel::Task::Current()); atTransmitSock = &sock; atTransmitLen = len; }
+    //! Mark an AT command complete from a response callback, for commands that do not end with "OK"
+    void ATComplete() { ASSERT(atResult == ATResult::Pending); atResult = ATResult::OK; }
 
     async(ATLock);
     async(AT, Span cmd);
@@ -158,17 +160,18 @@ protected:
     void RequestProcessing() { process = true; }
 
     io::PipeReader Input() { return rx; }
+    size_t InputLength() const { return rx.LengthUntil(lineEnd); }
     io::PipeWriter Output() { return tx; }
     ModemOptions& Options() { return options; }
     SelfLinkedList<Socket>& Sockets() { return sockets; }
     Socket* FindSocket(uint8_t channel) { for (auto& s: sockets) { if (s.IsAllocated() && s.channel == channel) return &s; } return NULL; }
     Socket* FindSocket(uint8_t channel, bool secure) { for (auto& s: sockets) { if (s.IsAllocated() && s.IsSecure() == secure && s.channel == channel) return &s; } return NULL; }
 
+    io::Pipe::Iterator& InputField() { return lineFields; }
     unsigned InputFieldCount() const;
     bool InputFieldNum(int& n, unsigned base = 10);
     bool InputFieldHex(int& n) { return InputFieldNum(n, 16); }
     bool InputFieldFnv(uint32_t& fnv);
-    size_t InputLength() { return rx.LengthUntil(lineEnd); }
 
     void PowerDiagnostic(ModemOptions::CallbackType type, Span msg);
 
@@ -193,6 +196,7 @@ private:
     ATResult atResult = ATResult::OK;
 
     io::PipePosition lineEnd;
+    io::Pipe::Iterator lineFields;
     kernel::Task* atTask = NULL;
     Timeout atNextTimeout;
     AsyncDelegate<FNV1a> atResponse;

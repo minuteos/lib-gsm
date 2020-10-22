@@ -63,7 +63,7 @@ public:
     async(Disconnect, Timeout timeout = Timeout::Infinite);
     void Release();
 
-    bool IsConnected() const { return !!(flags & SocketFlags::ModemConnected); }
+    bool IsConnected() const { return (flags & (SocketFlags::ModemConnected | SocketFlags::ModemClosed)) == SocketFlags::ModemConnected; }
     bool IsSecure() const { return !!(flags & SocketFlags::AppSecure); }
 
     io::PipeReader Input() { return rx; }
@@ -92,7 +92,7 @@ private:
 
     bool NeedsConnect() const
     {
-        return (flags & (SocketFlags::AppClose | SocketFlags::AppReference | SocketFlags::ModemAllocated | SocketFlags::ModemReference | SocketFlags::ModemConnecting))
+        return (flags & (SocketFlags::AppClose | SocketFlags::AppReference | SocketFlags::ModemAllocated | SocketFlags::ModemReference | SocketFlags::ModemConnecting | SocketFlags::ModemClosing | SocketFlags::ModemClosed))
             == (SocketFlags::ModemAllocated | SocketFlags::AppReference);
     }
 
@@ -118,7 +118,8 @@ private:
 
     bool CanSend() const
     {
-        return !(flags & SocketFlags::ModemSending);
+        return (flags & (SocketFlags::ModemConnected | SocketFlags::ModemSending | SocketFlags::ModemClosing | SocketFlags::ModemClosed))
+            == SocketFlags::ModemConnected;
     }
 
     bool CanReceive()
@@ -184,7 +185,7 @@ private:
     void Disconnected()
     {
         ASSERT(IsAllocated());
-        flags = flags & ~(SocketFlags::ModemConnecting | SocketFlags::ModemReference);
+        flags = (flags & ~(SocketFlags::ModemConnecting | SocketFlags::ModemReference)) | SocketFlags::ModemClosing;
     }
 
     friend class Modem;

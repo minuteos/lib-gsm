@@ -122,7 +122,8 @@ async_end
 
 async(SimComModem::SendPacketImpl, Socket& sock)
 async_def(
-    size_t len
+    size_t len;
+    const char* type;
 )
 {
     f.len = std::min(size_t(MaxPacket), sock.OutputReader().Available());
@@ -135,7 +136,8 @@ async_def(
     await(ATLock);
     sock.Sending();
     NextATTransmit(sock, f.len);
-    if (await(ATFormat, "+CCHSEND=%d,%d", sock.channel, f.len))
+    f.type = model == Model::SIM7600 && sock.IsSecure() ? "CH" : "IP";
+    if (await(ATFormat, "+C%sSEND=%d,%d", f.type, sock.channel, f.len))
     {
         sock.SendingComplete();
         async_return(false);
@@ -284,6 +286,7 @@ async(SimComModem::Initialize)
 async_def()
 {
     model = Model::Unknown;
+    cfun = 0;
     sim = {};
     net = {};
     gprs = {};
@@ -349,11 +352,17 @@ async_def()
         (model == Model::SIM800 && await(AT, "+EXUNSOL=\"SQ\",1")) ||
         (model == Model::SIM7600 && await(AT, "+AUTOCSQ=1,1")) ||
         // network info
-        (model == Model::SIM800 && await(AT, "+CIEV=1")) ||
+        (model == Model::SIM800 && await(AT, "+CR=1")) ||
         (model == Model::SIM7600 && await(AT, "+CPSI=10")) ||
         false)
     {
         async_return(false);
+    }
+
+    if (model == Model::SIM800)
+    {
+        // wait for CFUN to be nonzero to avoid unnecessary SIM errors
+        await_mask_not_sec(cfun, 0xFF, 0, 5);
     }
 
     async_return(true);
@@ -363,19 +372,54 @@ async_end
 async(SimComModem::OnReceiveId, FNV1a header)
 async_def_sync()
 {
-    if (header == "Model" &&
-        Input().Matches("SIMCOM_") &&
-        Input().Matches("SIM7600", 7))
+    if (Input().Matches("SIM800"))
     {
-        model = Model::SIM7600;
+        model = Model::SIM800;
+    }
+    else if (header == "Model")
+    {
+        if (InputField().Matches("SIMCOM_") &&
+            InputField().Matches("SIM7600", 7))
+        {
+            model = Model::SIM7600;
+        }
     }
 }
 async_end
 
-async(SimComModem::UnlockSimImpl)
-async_def()
+async(SimComModem::OnReceivePlainIP, FNV1a header)
+async_def_sync()
 {
-    if (!await(AT, "+CPIN?"))
+    // just a simple IP arrives
+    ATComplete();
+}
+async_end
+
+async(SimComModem::UnlockSimImpl)
+async_def(
+    int attempt;
+)
+{
+    while (await(AT, "+CPIN?"))
+    {
+        if (Input().Matches("+CME ERROR: "))
+        {
+            if (Input().Matches("SIM not inserted", 12))
+            {
+                SimStatus(SimStatus::NotInserted);
+                async_return(false);
+            }
+        }
+
+        if (++f.attempt == 10)
+        {
+            async_return(false);
+        }
+
+        // try again in a while
+        async_delay_ms(1000);
+    }
+
     {
         if (sim.pinRequired && pin[0])
         {
@@ -409,13 +453,6 @@ async_def()
             SimStatus(sim.pinUsed ? SimStatus::BadPin : SimStatus::Locked);
         }
         else
-        {
-            SimStatus(SimStatus::NotInserted);
-        }
-    }
-    else if (Input().Matches("+CME ERROR: "))
-    {
-        if (Input().Matches("SIM not inserted", 12))
         {
             SimStatus(SimStatus::NotInserted);
         }
@@ -510,6 +547,8 @@ async_def()
         }
 
         // get local IP (doesn't send an OK reply, just one line with the address)
+        await(ATLock);
+        NextATResponse(GetDelegate(this, &SimComModem::OnReceivePlainIP));
         if (await(AT, "+CIFSR"))
         {
             async_return(false);
@@ -551,6 +590,7 @@ async_def_sync()
     switch (hash)
     {
         case fnv1a("+CSQ"):
+        case fnv1a("+CSQN"):
         {
             int rssi, ber;
             if (InputFieldNum(rssi) && InputFieldNum(ber))
@@ -605,7 +645,7 @@ async_def_sync()
         }
 
         case fnv1a("+CPIN"):
-            if (Input().Matches("READY"))
+            if (InputField().Matches("READY"))
             {
                 sim.ready = true;
             }
@@ -639,6 +679,23 @@ async_def_sync()
             async_return(true);
         }
 
+        case fnv1a("CONNECT OK"):
+        {
+            uint8_t ch = Input().Peek(0) - '0';
+            Socket* s = FindSocket(ch, true);
+            if (!s)
+            {
+                MYDBG("Status arrived for unallocated TCP socket %d", ch);
+            }
+            else
+            {
+                MYDBG("%p connected", s);
+                s->Connected();
+                RequestProcessing();
+            }
+            async_return(true);
+        }
+
         case fnv1a("+CCHCLOSE"):
         case fnv1a("+CCH_PEER_CLOSED"):
         {
@@ -656,6 +713,24 @@ async_def_sync()
                     s->Disconnected();
                     RequestProcessing();
                 }
+            }
+            async_return(true);
+        }
+
+        case fnv1a("CLOSE OK"):
+        case fnv1a("CLOSED"):
+        {
+            uint8_t ch = Input().Peek(0) - '0';
+            Socket* s = FindSocket(ch, true);
+            if (!s)
+            {
+                MYDBG("Status arrived for unallocated TCP socket %d", ch);
+            }
+            else
+            {
+                MYDBG("%p disconnected", s);
+                s->Disconnected();
+                RequestProcessing();
             }
             async_return(true);
         }
@@ -701,8 +776,8 @@ async_def_sync()
                         else
                         {
                             MYTRACE("Incoming %d bytes of data for socket %p", len, s);
+                            s->MaybeIncoming();
                         }
-                        s->MaybeIncoming();
                         RequestProcessing();
                         ReceiveForSocket(s, len);
                     }
@@ -728,6 +803,28 @@ async_def_sync()
                     }
                     break;
                 }
+            }
+            async_return(true);
+        }
+
+        case fnv1a("+RECEIVE,"):
+        {
+            int ch, len;
+            if (InputFieldNum(ch) && InputFieldNum(len), len)    // InputFieldNum(len) will return an error, since the length is followed by a colon
+            {
+                // data received for channel
+                Socket* s = FindSocket(ch, true);
+                if (!s)
+                {
+                    MYDBG("Incoming %d bytes of data for unallocated TCP socket %d", len, ch);
+                }
+                else
+                {
+                    MYTRACE("Incoming %d bytes of data for socket %p", len, s);
+                    s->MaybeIncoming();
+                }
+                RequestProcessing();
+                ReceiveForSocket(s, len);
             }
             async_return(true);
         }
@@ -763,7 +860,7 @@ async_def_sync()
                 Socket* s = FindSocket(ch, true);
                 if (!s)
                 {
-                    MYDBG("Send confirmation (%d) for unallocaed TLS socket %d", err, ch);
+                    MYDBG("Send confirmation (%d) for unallocated TLS socket %d", err, ch);
                 }
                 else if (err)
                 {
@@ -779,6 +876,28 @@ async_def_sync()
             async_return(true);
         }
 
+        case fnv1a("DATA ACCEPT"):
+        {
+            int ch, len;
+            if (InputFieldNum(ch) && InputFieldNum(len))
+            {
+                // data accepted
+                Socket* s = FindSocket(ch, true);
+                if (!s)
+                {
+                    MYDBG("Send confirmation (%d) for unallocated TCP socket %d", len, ch);
+                }
+                else
+                {
+                    MYTRACE("%d bytes accepted for socket %p", len, s);
+                    s->SendingComplete();
+                    RequestProcessing();
+                }
+            }
+            ATComplete();   // this event arrives instead of OK
+            async_return(true);
+        }
+
         case fnv1a("+CPSI"):
         {
             uint32_t tmp;
@@ -786,7 +905,7 @@ async_def_sync()
             InputFieldFnv(tmp);
             struct N { unsigned value = 0, digits = 0; } mcc, mnc;
             N* n = &mcc;
-            for (auto ch: Input())
+            for (auto ch: InputField())
             {
                 if (ch >= '0' && ch <= '9')
                 {
@@ -809,11 +928,33 @@ async_def_sync()
             NetworkInfo(gsm::NetworkInfo(mcc.value, mnc.value, mnc.digits));
             async_return(true);
         }
+
+        case fnv1a("+CIEV"):
+        {
+            // TODO: SIM800 network info
+            async_return(true);
+        }
+
+        case fnv1a("+CFUN"):
+        {
+            int tmp;
+            if (InputFieldNum(tmp))
+            {
+                cfun = tmp;
+            }
+            async_return(true);
+        }
+
         case fnv1a("+CTZV"):
         case fnv1a("+CCHSTART"):
         case fnv1a("+COPS"):
         case fnv1a("+IPADDR"):
         case fnv1a("+NETOPEN"):
+        case fnv1a("RDY"):
+        case fnv1a("Call Ready"):
+        case fnv1a("SMS Ready"):
+        case fnv1a("*PSUTTZ"):
+        case fnv1a("DST"):
             // events we don't want to handle
             async_return(true);
     }

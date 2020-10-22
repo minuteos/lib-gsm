@@ -12,7 +12,7 @@
 #define TRACE_SOCKETS   2
 #define TRACE_DATA      4
 
-//#define MODEM_TRACE     TRACE_AT | TRACE_SOCKETS
+#define MODEM_TRACE     TRACE_AT | TRACE_SOCKETS
 
 #define MYDBG(...)      DBGCL("gsm", __VA_ARGS__)
 
@@ -275,14 +275,41 @@ async_def(
                     options.DiagnosticCallback(ModemOptions::CallbackType::CommandReceive, rx.Peek(buf.Left(len - 1)));
                 }
                 FNV1a hash;
-                auto start = rx.Enumerate(len - 1);
-                auto iter = start;
-                while (iter != rx.end() && *iter != ':')
+                auto iter = rx.Enumerate(len - 1);
+                bool digitsOnly = true;
+                while (iter && *iter != ':')
                 {
+                    if (*iter == ',')
+                    {
+                        if (digitsOnly)
+                        {
+                            // calculate hash only for text after the comma
+                            // for events with channel, such as "0, CONNECT OK"
+                            ++iter;
+                            if (iter && *iter == ' ')
+                            {
+                                ++iter;
+                            }
+                            hash = FNV1a();
+                            continue;
+                        }
+                        else
+                        {
+                            // terminate at comma, include it in the event hash
+                            // to disambiguate
+                            hash += ',';
+                            ++iter;
+                            break;
+                        }
+                    }
+                    else if (*iter < '0' || *iter > '9')
+                    {
+                        digitsOnly = false;
+                    }
+
                     hash += *iter;
                     ++iter;
                 }
-                size_t hashLen = iter - start;
 
                 switch (hash)
                 {
@@ -306,15 +333,15 @@ async_def(
                         break;
 
                     default:
-                        rx.Advance(hashLen);
-                        if (rx.Peek(0) == ':')
+                        if (*iter == ':')
                         {
-                            rx.Advance(1);
-                            if (rx.Peek(0) == ' ')
+                            ++iter;
+                            if (iter && *iter == ' ')
                             {
-                                rx.Advance(1);
+                                ++iter;
                             }
                         }
+                        lineFields = iter;
                         f.hash = hash;
                         if (!await(OnEvent, f.hash))
                         {
@@ -524,12 +551,8 @@ unsigned Modem::InputFieldCount() const
     unsigned n = 0;
     bool empty = true;
 
-    for (char c: rx)
+    for (char c: lineFields)
     {
-        if (c == '\r')
-        {
-            break;
-        }
         empty = false;
         if (c == ',')
         {
@@ -546,16 +569,16 @@ unsigned Modem::InputFieldCount() const
 bool Modem::InputFieldNum(int& res, unsigned base)
 {
     res = 0;
-    auto iter = rx.begin();
+    auto iter = lineFields;
 
     bool neg = false;
 
-    if (iter != rx.end() && (*iter == '+' || (neg = *iter == '-')))
+    if (iter && (*iter == '+' || (neg = *iter == '-')))
         ++iter;
 
     bool hasDigit = false;
     bool error = false;
-    while (iter != rx.end())
+    while (iter)
     {
         char c = *iter;
         size_t digit;
@@ -581,7 +604,7 @@ bool Modem::InputFieldNum(int& res, unsigned base)
     }
 
     // skip the rest of the field
-    while (iter != rx.end() && *iter != '\r')
+    while (iter)
     {
         bool eof = *iter == ',';
         ++iter;
@@ -596,7 +619,7 @@ bool Modem::InputFieldNum(int& res, unsigned base)
         }
     }
 
-    rx.Advance(iter - rx.begin());
+    lineFields = iter;
     if (neg)
     {
         res = -res;
@@ -607,18 +630,16 @@ bool Modem::InputFieldNum(int& res, unsigned base)
 bool Modem::InputFieldFnv(uint32_t& res)
 {
     FNV1a fnv;
-    auto iter = rx.begin();
-    while (iter != rx.end())
+    auto iter = lineFields;
+    while (iter)
     {
         char c = *iter;
-        if (c == '\r')
-            break;
         ++iter;
         if (c == ',')
             break;
         fnv += c;
     }
-    rx.Advance(iter - rx.begin());
+    lineFields = iter;
     res = fnv;
     return true;
 }
