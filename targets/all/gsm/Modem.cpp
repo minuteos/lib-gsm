@@ -87,16 +87,16 @@ async_def(
     Socket* next;
 )
 {
-    PowerDiagnostic(ModemOptions::CallbackType::CommandSend, "ON");
+    PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "ON");
     while (!await(PowerOnImpl))
     {
-        PowerDiagnostic(ModemOptions::CallbackType::CommandReceive, "ERR");
+        PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "ERR");
         ModemStatus(ModemStatus::PowerOnFailure);
         MYDBG("Power on failed. Will retry in 30 seconds.");
         async_delay_sec(30);
     }
 
-    PowerDiagnostic(ModemOptions::CallbackType::CommandReceive, "ON");
+    PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "ON");
     MYDBG("Starting RX");
     ASSERT(!(signals & (Signal::RxTaskActive | Signal::RxTaskActive)));
     signals |= Signal::RxTaskActive;
@@ -205,9 +205,9 @@ async_def(
 
     tx.Close();
 
-    PowerDiagnostic(ModemOptions::CallbackType::CommandSend, "OFF");
+    PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "OFF");
     await(PowerOffImpl);
-    PowerDiagnostic(ModemOptions::CallbackType::CommandReceive, "OFF");
+    PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "OFF");
 
     await_mask(signals, Signal::RxTaskActive, 0);
 
@@ -661,13 +661,7 @@ void Modem::PowerDiagnostic(ModemOptions::CallbackType type, Span msg)
 {
     if (Buffer buf = options.GetDiagnosticBuffer(type))
     {
-        auto hdr = Span("!PWR:");
-        if (buf.Length() >= hdr.Length())
-        {
-            memcpy(buf.Pointer(), hdr, hdr.Length());
-            memcpy(buf.Pointer() + hdr.Length(), msg, std::min(buf.Length() - hdr.Length(), msg.Length()));
-            options.DiagnosticCallback(type, buf.Left(hdr.Length() + msg.Length()));
-        }
+        options.DiagnosticCallback(type, msg.CopyTo(buf));
     }
 }
 

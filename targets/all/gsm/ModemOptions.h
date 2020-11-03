@@ -28,6 +28,8 @@ public:
     {
         CommandSend,
         CommandReceive,
+        PowerSend,
+        PowerReceive,
     };
 
     virtual RES_PAIR_DECL(GetDiagnosticBuffer, CallbackType type) { return Buffer(); }
