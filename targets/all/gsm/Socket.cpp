@@ -25,7 +25,7 @@ async_def()
 {
     flags |= SocketFlags::AppClose;
     owner->RequestProcessing();
-    async_return(await_mask_timeout(flags, SocketFlags::ModemReference, 0, timeout));
+    async_return(await_mask_not_timeout(flags, SocketFlags::ModemClosed, 0, timeout));
 }
 async_end
 

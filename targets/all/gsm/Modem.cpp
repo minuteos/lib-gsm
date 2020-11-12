@@ -68,7 +68,8 @@ void Modem::ReleaseSocket(Socket* sock)
 
     // mark as released and request closure
     sock->flags = (sock->flags & ~SocketFlags::AppReference) | SocketFlags::AppClose;
-    RequestProcessing();
+    // we need the task to run, at least to destroy the socket
+    EnsureRunning();
 }
 
 void Modem::EnsureRunning()
@@ -87,6 +88,45 @@ async_def(
     Socket* next;
 )
 {
+    // we may not need to run, preprocess sockets to find if there is an active one
+    process = false;
+    MYTRACE(TRACE_SOCKETS, "Preprocessing sockets...");
+    for (auto& s: sockets)
+    {
+        if (!!(s.flags & SocketFlags::AppClose))
+        {
+            // app has requested closure of the socket in the meantime, just mark it closed
+            s.Finished();
+        }
+        else if (s.IsNew())
+        {
+            // the socket is alive and needs processing
+            process = true;
+        }
+        else
+        {
+            // should have been closed already
+            ASSERT(s.IsClosed());
+        }
+    }
+
+    // destroy old sockets
+    for (auto& manip: sockets.Manipulate())
+    {
+        if (manip.Element().CanDelete())
+        {
+            // delete socket
+            DestroySocket(&manip.Remove());
+        }
+    }
+
+    if (!process)
+    {
+        MYTRACE(TRACE_SOCKETS, "No active sockets, not starting...");
+        signals &= ~Signal::TaskActive;
+        async_return(false);
+    }
+
     PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "ON");
     while (!await(PowerOnImpl))
     {
@@ -204,6 +244,12 @@ async_def(
     }
 
     tx.Close();
+
+    // finish all sockets
+    for (f.s = sockets.First(); f.s && !rxLen; f.s = f.s->next)
+    {
+        f.s->Finished();
+    }
 
     PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "OFF");
     await(PowerOffImpl);

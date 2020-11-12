@@ -65,6 +65,7 @@ public:
 
     bool IsConnected() const { return (flags & (SocketFlags::ModemConnected | SocketFlags::ModemClosed)) == SocketFlags::ModemConnected; }
     bool IsSecure() const { return !!(flags & SocketFlags::AppSecure); }
+    bool IsClosed() const { return !!(flags & SocketFlags::ModemClosed); }
 
     io::PipeReader Input() { return rx; }
     io::PipeWriter Output() { return tx; }
@@ -83,6 +84,12 @@ private:
 
     io::PipeReader OutputReader() { return tx; }
     io::PipeWriter InputWriter() { return rx; }
+
+    bool IsNew() const
+    {
+        return (flags & ~SocketFlags::AppSecure)
+            == SocketFlags::AppReference;
+    }
 
     bool NeedsClose() const
     {
@@ -185,7 +192,12 @@ private:
     void Disconnected()
     {
         ASSERT(IsAllocated());
-        flags = (flags & ~(SocketFlags::ModemConnecting | SocketFlags::ModemReference)) | SocketFlags::ModemClosing;
+        Finished();
+    }
+
+    void Finished()
+    {
+        flags = (flags & ~(SocketFlags::ModemConnecting | SocketFlags::ModemReference)) | SocketFlags::ModemConnected | SocketFlags::ModemClosed;
     }
 
     friend class Modem;
