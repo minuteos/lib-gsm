@@ -28,6 +28,7 @@ public:
     {
         CommandSend,
         CommandReceive,
+        CommandError,
         PowerSend,
         PowerReceive,
     };

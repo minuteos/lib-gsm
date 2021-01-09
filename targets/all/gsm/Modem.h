@@ -89,6 +89,8 @@ public:
 
     const class NetworkInfo& NetworkInfo() const { return netInfo; }
 
+    bool IsActive() const { return !!(signals & Signal::TaskActive); }
+
     int Rssi() const { return rssi; }
 
     Timeout ATTimeout() const { return atTimeout; }
@@ -101,6 +103,7 @@ public:
     void PowerOffTimeout(Timeout timeout) { ASSERT(timeout.IsRelative()); powerOffTimeout = timeout; }
 
     async(WaitForIdle, Timeout timeout);
+    async(WaitForPowerOff, Timeout timeout);
     Socket* CreateSocket(Span host, uint32_t port, bool tls);
 
 protected:
@@ -111,22 +114,38 @@ protected:
         Timeout,
         Failure,
         Pending = -1,
+        PendingWasOK = -2,
+        PendingWaitOK = -3,
     };
 
     void EnsureRunning();
 
     //! Sets the timeout for the next AT call, can be called only after ATLock
-    void NextATTimeout(Timeout timeout) { ASSERT(atTask == &kernel::Task::Current()); atNextTimeout = timeout; }
+    //! @returns false so it can be easily chained between ATLock and ATXxx
+    bool NextATTimeout(Timeout timeout) { ASSERT(atTask == &kernel::Task::Current()); atNextTimeout = timeout; return false; }
     //! Sets a callback for the next AT call, can be called only after ATLock
-    void NextATResponse(AsyncDelegate<FNV1a> handler) { ASSERT(atTask == &kernel::Task::Current()); atResponse = handler; }
+    //! @returns false so it can be easily chained between ATLock and ATXxx
+    bool NextATResponse(AsyncDelegate<FNV1a> handler) { ASSERT(atTask == &kernel::Task::Current()); atResponse = handler; return false; }
     //! Sets the socket from which data will ba transmitted during the AT command
-    void NextATTransmit(Socket& sock, size_t len) { ASSERT(atTask == &kernel::Task::Current()); atTransmitSock = &sock; atTransmitLen = len; }
+    //! @returns false so it can be easily chained between ATLock and ATXxx
+    bool NextATTransmit(Socket& sock, size_t len) { ASSERT(atTask == &kernel::Task::Current()); atTransmitSock = &sock; atTransmitLen = len; return false; }
     //! Mark an AT command complete from a response callback, for commands that do not end with "OK"
     void ATComplete() { ASSERT(atResult == ATResult::Pending); atResult = ATResult::OK; }
+    //! Mark an AT command complete from a response callback, for commands that combine OK and an additional response
+    //! @returns false so it can be easily chained between ATLock and ATXxx
+    bool ATCompleteWaitOK();
 
+    //! Gets the lock for executing an AT command with response
+    //! @returns non-zero if the lock cannot be obtained
     async(ATLock);
+    //! Executes a simple AT command
+    //! @returns an ATResult indicating the result of the command execution
     async(AT, Span cmd);
+    //! Executes a simple AT command
+    //! @returns an ATResult indicating the result of the command execution
     async(ATFormat, const char* format, ...) async_def_va(ATFormatV, format, format);
+    //! Executes a simple AT command
+    //! @returns an ATResult indicating the result of the command execution
     async(ATFormatV, const char* format, va_list va);
 
     void ReceiveForSocket(Socket* sock, size_t len) { rxSock = sock; rxLen = len; }

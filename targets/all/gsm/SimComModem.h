@@ -92,6 +92,7 @@ private:
     struct : RegBase
     {
         int8_t rssi, ber;
+        bool error;
     } net = {};
     struct : RegBase
     {
@@ -115,6 +116,7 @@ private:
 
     async(OnReceiveId, FNV1a header);
     async(OnReceivePlainIP, FNV1a header);
+    async(OnReceiveNetOpenCchStart, FNV1a header);
 };
 
 }

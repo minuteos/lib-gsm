@@ -28,7 +28,15 @@ namespace gsm
 async(Modem::WaitForIdle, Timeout timeout)
 async_def()
 {
-    await_mask_timeout(sockets, ~0, 0, timeout);
+    async_return(await_mask_timeout(sockets, ~0, 0, timeout));
+}
+async_end
+
+
+async(Modem::WaitForPowerOff, Timeout timeout)
+async_def()
+{
+    async_return(await_mask_not_timeout(signals, Signal::TaskActive, Signal::TaskActive, timeout));
 }
 async_end
 
@@ -360,19 +368,27 @@ async_def(
                 switch (hash)
                 {
                     case fnv1a("OK"):
-                        if (atResult == ATResult::Pending)
-                            atResult = ATResult::OK;
-                        else
-                            MYDBG("!! Unexpected OK");
+                        switch (atResult)
+                        {
+                            case ATResult::Pending:
+                                atResult = atResponse ? ATResult::PendingWasOK : ATResult::OK;
+                                break;
+                            case ATResult::PendingWaitOK:
+                                atResult = ATResult::OK;
+                                break;
+                            default:
+                                MYDBG("!! Unexpected OK");
+                                break;
+                        }
                         break;
 
                     case fnv1a("ERROR"):
                     case fnv1a("+CME ERROR"):
                     case fnv1a("+CMS ERROR"):
-                        if (atResult == ATResult::Pending)
+                        if (int(atResult) < 0)
                         {
                             atResult = ATResult::Error;
-                            async_yield();  // let the task sendint the command see the error
+                            async_yield();  // let the task sending the command see the error
                         }
                         else
                             MYDBG("!! Unexpected Error");
@@ -391,7 +407,7 @@ async_def(
                         f.hash = hash;
                         if (!await(OnEvent, f.hash))
                         {
-                            if (atResult != ATResult::Pending)
+                            if (int(atResult) >= 0) // not pending
                             {
                                 MYDBG("!! unexpected event");
                             }
@@ -472,6 +488,29 @@ async_def(
 }
 async_end
 
+bool Modem::ATCompleteWaitOK()
+{
+    switch (atResult)
+    {
+    case ATResult::Pending:
+        // the command did not receive OK yet
+        atResult = ATResult::PendingWaitOK;
+        break;
+    case ATResult::PendingWaitOK:
+        // additional response?
+        break;
+    case ATResult::PendingWasOK:
+        // OK received before completion, we're done
+        atResult = ATResult::OK;
+        break;
+    default:
+        // command not pending
+        ASSERT(false);
+        break;
+    }
+    return false;
+}
+
 async(Modem::ATLock)
 async_def()
 {
@@ -479,20 +518,32 @@ async_def()
     {
         if (atTask == &kernel::Task::Current())
         {
-            async_return(true);
+            async_return(false);
         }
+    }
+
+    if (modemStatus == ModemStatus::CommandError)
+    {
+        // we cannot continue executing commands once a command failed,
+        // as the ordering in the AT protocol can be broken
+        atResult = ATResult::Failure;
+        async_return(true);
     }
 
     await_acquire(signals, Signal::ATLock);
     atTask = &kernel::Task::Current();
-    async_return(true);
+    atResult = ATResult::Pending;
+    async_return(false);
 }
 async_end
 
 async(Modem::AT, Span cmd)
 async_def()
 {
-    await(ATLock);
+    if (await(ATLock))
+    {
+        async_return(int(ATResult::Failure));
+    }
 
     MYTRACE(TRACE_AT, ">> AT%b", cmd);
 
@@ -505,8 +556,6 @@ async_def()
             options.DiagnosticCallback(ModemOptions::CallbackType::CommandSend, buf.Left(cmd.Length() + 2));
         }
     }
-
-    atResult = ATResult::Pending;
 
     if (await(tx.Write, "AT") != 2 ||
         await(tx.Write, cmd) != (int)cmd.Length() ||
@@ -527,7 +576,10 @@ async_end
 async(Modem::ATFormatV, const char* format, va_list va)
 async_def()
 {
-    await(ATLock);
+    if (await(ATLock))
+    {
+        async_return(int(ATResult::Failure));
+    }
 
 #if TRACE && (MODEM_TRACE & TRACE_AT)
     DBGC("gsm", ">> AT");
@@ -549,8 +601,6 @@ async_def()
             options.DiagnosticCallback(ModemOptions::CallbackType::CommandSend, Buffer(buf.Pointer(), res.end()));
         }
     }
-
-    atResult = ATResult::Pending;
 
     if (await(tx.Write, "AT") != 2 ||
         (format && format[0] && await(tx.WriteFV, Timeout::Infinite, format, va) <= 0) ||
@@ -579,7 +629,7 @@ async_def(
     f.timeout = (atNextTimeout || atTimeout).MakeAbsolute();
     atNextTimeout = Timeout::Infinite;
 
-    if (!await_mask_not_timeout(atResult, MASK(sizeof(atResult) * 8), ATResult::Pending, f.timeout))
+    if (!await_mask_not_timeout(atResult, 0x80, 0x80, f.timeout))
     {
         ModemStatus(ModemStatus::CommandError);
         atResult = ATResult::Timeout;

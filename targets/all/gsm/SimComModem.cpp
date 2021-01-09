@@ -133,7 +133,11 @@ async_def(
         async_return(0);
     }
 
-    await(ATLock);
+    if (await(ATLock))
+    {
+        async_return(false);
+    }
+
     sock.Sending();
     NextATTransmit(sock, f.len);
     f.type = model == Model::SIM7600 && sock.IsSecure() ? "CH" : "IP";
@@ -268,9 +272,9 @@ async_def(
 
     for (f.i = 0; f.i < 10; f.i++)
     {
-        await(ATLock);
-        NextATTimeout(Timeout::Milliseconds(100));
-        if (!await(AT, Span()))
+        if (!(await(ATLock) ||
+            NextATTimeout(Timeout::Milliseconds(100)) ||
+            await(AT, Span())))
         {
             async_return(await(Initialize));
         }
@@ -297,9 +301,10 @@ async_def()
     }
 
     // request modem identification
-    await(ATLock);
-    NextATResponse(GetDelegate(this, &SimComModem::OnReceiveId));
-    if (await(AT, "I"))
+    if (await(ATLock) ||
+        ATCompleteWaitOK() ||
+        NextATResponse(GetDelegate(this, &SimComModem::OnReceiveId)) ||
+        await(AT, "I"))
     {
         async_return(false);
     }
@@ -333,9 +338,9 @@ async_def()
     if (model == Model::SIM800)
     {
         // additional identification
-        await(ATLock);
-        NextATResponse(GetDelegate(this, &SimComModem::OnReceiveId));
-        if (await(AT, "+GSV"))    // additional identification
+        if (await(ATLock) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveId)) ||
+            await(AT, "+GSV"))    // additional identification
         {
             async_return(false);
         }
@@ -392,6 +397,18 @@ async_def_sync()
 {
     // just a simple IP arrives
     ATComplete();
+}
+async_end
+
+async(SimComModem::OnReceiveNetOpenCchStart, FNV1a header)
+async_def_sync()
+{
+    if (header == "+NETOPEN" || header == "+CCHSTART")
+    {
+        int n;
+        net.error = !(InputFieldNum(n) && n == 0);
+        ATCompleteWaitOK();
+    }
 }
 async_end
 
@@ -524,9 +541,9 @@ async_def()
     }
 
     // activate PDP context
-    await(ATLock);
-    NextATTimeout(Timeout::Seconds(60));
-    if (await(AT, "+CGACT=1,1"))
+    if (await(ATLock) ||
+        NextATTimeout(Timeout::Seconds(60)) ||
+        await(AT, "+CGACT=1,1"))
     {
         async_return(false);
     }
@@ -539,17 +556,17 @@ async_def()
             async_return(false);
         }
         // activate GPRS
-        await(ATLock);
-        NextATTimeout(Timeout::Seconds(60));
-        if (await(AT, "+CIICR"))
+        if (await(ATLock) ||
+            NextATTimeout(Timeout::Seconds(60)) ||
+            await(AT, "+CIICR"))
         {
             async_return(false);
         }
 
         // get local IP (doesn't send an OK reply, just one line with the address)
-        await(ATLock);
-        NextATResponse(GetDelegate(this, &SimComModem::OnReceivePlainIP));
-        if (await(AT, "+CIFSR"))
+        if (await(ATLock) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceivePlainIP)) ||
+            await(AT, "+CIFSR"))
         {
             async_return(false);
         }
@@ -566,9 +583,16 @@ async_def()
         }
 
         // activate TCP and TLS
-        await(ATLock);
-        NextATTimeout(Timeout::Seconds(60));
-        if (await(AT, "+NETOPEN") || await(AT, "+CCHSET=1,0") || await(AT, "+CCHSTART"))
+        if (await(ATLock) ||
+            NextATTimeout(Timeout::Seconds(60)) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetOpenCchStart)) ||
+            await(AT, "+NETOPEN") ||
+            net.error ||
+            await(AT, "+CCHSET=1,0") ||
+            await(ATLock) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetOpenCchStart)) ||
+            await(AT, "+CCHSTART") ||
+            net.error)
         {
             async_return(false);
         }
@@ -946,10 +970,8 @@ async_def_sync()
         }
 
         case fnv1a("+CTZV"):
-        case fnv1a("+CCHSTART"):
         case fnv1a("+COPS"):
         case fnv1a("+IPADDR"):
-        case fnv1a("+NETOPEN"):
         case fnv1a("RDY"):
         case fnv1a("Call Ready"):
         case fnv1a("SMS Ready"):
