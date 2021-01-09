@@ -33,6 +33,15 @@ public:
         PowerReceive,
     };
 
+    enum struct Parity
+    {
+        Off, Odd, Even, Mark, Space
+    };
+
+    // use even parity as default, to catch low spikes on the line
+    // which get treated as valid 0xFF bytes without parity
+    virtual Parity UseParity() { return Parity::Even; }
+
     virtual RES_PAIR_DECL(GetDiagnosticBuffer, CallbackType type) { return Buffer(); }
     ALWAYS_INLINE void DiagnosticCallback(CallbackType type, Buffer data) { DiagnosticCallback(type, data.Pointer(), data.Length()); }
     virtual void DiagnosticCallback(CallbackType type, char* data, size_t length) { }

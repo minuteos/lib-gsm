@@ -269,6 +269,7 @@ async_def(
 
     usartRx.GetUSART().BaudRate(115200);
     usartRx.GetUSART().FlowControlDisable();
+    usartRx.GetUSART().FrameSetup(USART::FrameBits8 | USART::ParityNone | USART::StopBitsOne);
 
     for (f.i = 0; f.i < 10; f.i++)
     {
@@ -287,7 +288,9 @@ async_def(
 async_end
 
 async(SimComModem::Initialize)
-async_def()
+async_def(
+    ModemOptions::Parity parity;
+)
 {
     model = Model::Unknown;
     cfun = 0;
@@ -328,6 +331,17 @@ async_def()
         }
     }
 
+    f.parity = Options().UseParity();
+    if (f.parity == ModemOptions::Parity::Even || f.parity == ModemOptions::Parity::Odd)
+    {
+        MYDBG("Enabling %s parity", f.parity == ModemOptions::Parity::Even ? "EVEN" : "ODD");
+        if (!await(ATFormat, "+ICF=2,%d", f.parity == ModemOptions::Parity::Even))
+        {
+            async_delay_ms(100);         // must wait, communicating too quickly confuses the module
+            usartRx.GetUSART().FrameSetup(USART::FrameBits8 | (f.parity == ModemOptions::Parity::Even ? USART::ParityEven : USART::ParityOdd) | USART::StopBitsOne);
+        }
+    }
+
     MYDBG("Switching to %d baud", ModelBaudRate());
     if (!await(ATFormat, "+IPR=%d", ModelBaudRate()))
     {
@@ -339,6 +353,7 @@ async_def()
     {
         // additional identification
         if (await(ATLock) ||
+            ATCompleteWaitOK() ||
             NextATResponse(GetDelegate(this, &SimComModem::OnReceiveId)) ||
             await(AT, "+GSV"))    // additional identification
         {
