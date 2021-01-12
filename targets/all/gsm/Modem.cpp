@@ -145,6 +145,7 @@ async_def(
     }
 
     PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "ON");
+    options.OnPowerOn();
     MYDBG("Starting RX");
     ASSERT(!(signals & (Signal::RxTaskActive | Signal::RxTaskActive)));
     signals |= Signal::RxTaskActive;
@@ -259,6 +260,7 @@ async_def(
         f.s->Finished();
     }
 
+    options.OnPowerOff();
     PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "OFF");
     await(PowerOffImpl);
     PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "OFF");

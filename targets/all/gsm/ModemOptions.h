@@ -21,6 +21,8 @@ public:
     virtual Span GetApnPassword() { return Span(); }
     virtual Span GetPin() { return Span(); }
     virtual void OnPinUsed() { }
+    virtual void OnPowerOn() { }
+    virtual void OnPowerOff() { }
     virtual bool RemovePin() { return true; }
     virtual bool UseFlowControl() { return true; }
 
