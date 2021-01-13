@@ -136,12 +136,26 @@ async_def(
     }
 
     PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "ON");
-    while (!await(PowerOnImpl))
+    if (!await(PowerOnImpl))
     {
         PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "ERR");
         ModemStatus(ModemStatus::PowerOnFailure);
-        MYDBG("Power on failed. Will retry in 30 seconds.");
-        async_delay_sec(30);
+        MYDBG("Power on failed. Will retry in 10 seconds.");
+        async_delay_sec(10);
+        if (!await(PowerOnImpl))
+        {
+            PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "FAIL");
+
+            // finish all sockets
+            for (f.s = sockets.First(); f.s && !rxLen; f.s = f.s->next)
+            {
+                f.s->Finished();
+            }
+
+            signals &= ~Signal::TaskActive;
+            OnTaskStopped();
+            async_return(false);
+        }
     }
 
     PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "ON");
@@ -317,6 +331,11 @@ async_def(
                 size_t len = await(rx.RequireUntil, '\r');
                 if (!len)
                 {
+                    if (rx.IsComplete())
+                    {
+                        // discard the remaining data
+                        rx.Advance(rx.Available());
+                    }
                     break;
                 }
 
