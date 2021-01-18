@@ -757,6 +757,9 @@ async_def_sync()
         }
 
         case fnv1a("CLOSE OK"):
+            ATComplete();   // this event arrives instead of OK
+            // fall through
+
         case fnv1a("CLOSED"):
         {
             uint8_t ch = Input().Peek(0) - '0';

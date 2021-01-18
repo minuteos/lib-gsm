@@ -74,6 +74,7 @@ void Modem::ReleaseSocket(Socket* sock)
     ASSERT(sockets.Contains(sock));
     ASSERT(sock->flags & SocketFlags::AppReference);
 
+    MYDBG("Socket %p to %s:%d released by app", sock, sock->host, sock->port);
     // mark as released and request closure
     sock->flags = (sock->flags & ~SocketFlags::AppReference) | SocketFlags::AppClose;
     // we need the task to run, at least to destroy the socket
