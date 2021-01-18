@@ -267,17 +267,16 @@ async_def(
         await(StopImpl);
     }
 
-    tx.Close();
-
     // finish all sockets
     for (f.s = sockets.First(); f.s && !rxLen; f.s = f.s->next)
     {
         f.s->Finished();
     }
 
-    options.OnPowerOff();
     PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "OFF");
     await(PowerOffImpl);
+    tx.Close();
+    options.OnPowerOff();
     PowerDiagnostic(ModemOptions::CallbackType::PowerReceive, "OFF");
 
     await_mask(signals, Signal::RxTaskActive, 0);

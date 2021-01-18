@@ -243,10 +243,56 @@ async_def()
 }
 async_end
 
+async(SimComModem::DisconnectNetworkImpl)
+async_def()
+{
+    if (gprs.pdpActive)
+    {
+        // deactivate PDP context
+        gprs.pdpActive = false;
+        if (model == Model::SIM800)
+        {
+            await(ATLock) ||
+                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveShutOK)) ||
+                await(AT, "+CIPSHUT");
+            await(AT, "+CGACT=0,1");
+        }
+        else
+        {
+            await(ATLock) ||
+                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
+                await(AT, "+CCHSTOP");
+            await(ATLock) ||
+                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
+                await(AT, "+NETCLOSE");
+        }
+    }
+
+    if (gprs.attached)
+    {
+        // detach GPRS
+        gprs.attached = false;
+        await(AT, "+CGATT=0");
+    }
+}
+async_end
+
 async(SimComModem::PowerOffImpl)
 async_def()
 {
-    // TODO: soft power off
+    // try soft power off
+    if (model == Model::SIM800)
+    {
+        await(ATLock) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceivePowerDown)) ||
+            await(AT, "+CPOWD=1");
+    }
+    else
+    {
+        await(AT, "+CPOF");
+    }
+
+    Output().Close();
 
     await_multiple_init();
     await_multiple_add(usartRx, &io::USARTRxPipe::Stop, Timeout::Infinite);
@@ -415,14 +461,34 @@ async_def_sync()
 }
 async_end
 
-async(SimComModem::OnReceiveNetOpenCchStart, FNV1a header)
+async(SimComModem::OnReceiveNetCch, FNV1a header)
 async_def_sync()
 {
-    if (header == "+NETOPEN" || header == "+CCHSTART")
+    if (header == "+NETOPEN" || header == "+NETCLOSE" || header == "+CCHSTART" || header == "+CCHSTOP")
     {
         int n;
         net.error = !(InputFieldNum(n) && n == 0);
         ATCompleteWaitOK();
+    }
+}
+async_end
+
+async(SimComModem::OnReceiveShutOK, FNV1a header)
+async_def_sync()
+{
+    if (header == "SHUT OK")
+    {
+        ATComplete();
+    }
+}
+async_end
+
+async(SimComModem::OnReceivePowerDown, FNV1a header)
+async_def_sync()
+{
+    if (header == "NORMAL POWER DOWN")
+    {
+        ATComplete();
     }
 }
 async_end
@@ -538,6 +604,8 @@ async_def()
         }
     }
 
+    gprs.attached = true;
+
     MYDBG("Connecting GPRS...");
     if (model == Model::SIM800)
     {
@@ -562,6 +630,8 @@ async_def()
     {
         async_return(false);
     }
+
+    gprs.pdpActive = true;
 
     if (model == Model::SIM800)
     {
@@ -600,12 +670,12 @@ async_def()
         // activate TCP and TLS
         if (await(ATLock) ||
             NextATTimeout(Timeout::Seconds(60)) ||
-            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetOpenCchStart)) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
             await(AT, "+NETOPEN") ||
             net.error ||
             await(AT, "+CCHSET=1,0") ||
             await(ATLock) ||
-            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetOpenCchStart)) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
             await(AT, "+CCHSTART") ||
             net.error)
         {
@@ -990,6 +1060,7 @@ async_def_sync()
         case fnv1a("+CTZV"):
         case fnv1a("+COPS"):
         case fnv1a("+IPADDR"):
+        case fnv1a("+PDP"):
         case fnv1a("RDY"):
         case fnv1a("Call Ready"):
         case fnv1a("SMS Ready"):

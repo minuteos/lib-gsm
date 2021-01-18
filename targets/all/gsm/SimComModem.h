@@ -85,6 +85,7 @@ private:
     struct RegBase
     {
         Registration status;
+        bool activated;
         bool active;
         uint16_t lac, ci;
         const char* StatusName() const { return SimComModem::StatusName(status); }
@@ -96,6 +97,7 @@ private:
     } net = {};
     struct : RegBase
     {
+        bool attached, pdpActive;
     } gprs = {};
 
     char pin[9] = {0};
@@ -108,6 +110,7 @@ private:
     async(StartImpl) override;
     async(UnlockSimImpl) override;
     async(ConnectNetworkImpl) override;
+    async(DisconnectNetworkImpl) override;
 
     async(Initialize);
     async(StartGprs);
@@ -116,7 +119,9 @@ private:
 
     async(OnReceiveId, FNV1a header);
     async(OnReceivePlainIP, FNV1a header);
-    async(OnReceiveNetOpenCchStart, FNV1a header);
+    async(OnReceiveNetCch, FNV1a header);
+    async(OnReceiveShutOK, FNV1a header);
+    async(OnReceivePowerDown, FNV1a header);
 };
 
 }
