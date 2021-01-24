@@ -80,6 +80,7 @@ private:
     uint16_t port;
     uint8_t channel;
     size_t incoming;
+    size_t outgoing;
     char host[];
 
     io::PipeReader OutputReader() { return tx; }
@@ -127,6 +128,11 @@ private:
     {
         return (flags & (SocketFlags::ModemConnected | SocketFlags::ModemSending | SocketFlags::ModemClosing | SocketFlags::ModemClosed))
             == SocketFlags::ModemConnected;
+    }
+
+    bool IsSending() const
+    {
+        return !!(flags & SocketFlags::ModemSending);
     }
 
     bool CanReceive()
@@ -177,16 +183,26 @@ private:
         flags &= ~(SocketFlags::ModemIncoming | SocketFlags::CheckIncoming);
     }
 
-    void Sending()
+    void Sending(size_t length)
     {
         ASSERT(IsConnected() && CanSend());
         flags |= SocketFlags::ModemSending;
+        outgoing = length;
     }
 
     void SendingComplete()
     {
-        ASSERT(!CanSend());
+        ASSERT(!CanSend() && IsSending());
         flags &= ~SocketFlags::ModemSending;
+        OutputReader().Advance(outgoing);
+        outgoing = 0;
+    }
+
+    void SendingFailed()
+    {
+        ASSERT(!CanSend() && IsSending());
+        flags &= ~SocketFlags::ModemSending;
+        outgoing = 0;
     }
 
     void Disconnected()

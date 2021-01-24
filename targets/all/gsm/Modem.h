@@ -114,8 +114,6 @@ protected:
         Timeout,
         Failure,
         Pending = -1,
-        PendingWasOK = -2,
-        PendingWaitOK = -3,
     };
 
     void EnsureRunning();
@@ -125,15 +123,14 @@ protected:
     bool NextATTimeout(Timeout timeout) { ASSERT(atTask == &kernel::Task::Current()); atNextTimeout = timeout; return false; }
     //! Sets a callback for the next AT call, can be called only after ATLock
     //! @returns false so it can be easily chained between ATLock and ATXxx
-    bool NextATResponse(AsyncDelegate<FNV1a> handler) { ASSERT(atTask == &kernel::Task::Current()); atResponse = handler; return false; }
-    //! Sets the socket from which data will ba transmitted during the AT command
+    bool NextATResponse(AsyncDelegate<FNV1a> handler, uint8_t mask = 1) { ASSERT(atTask == &kernel::Task::Current()); atResponse = handler; atRequire = mask; return false; }
+    //! Sets the socket from which data will be transmitted during the AT command
     //! @returns false so it can be easily chained between ATLock and ATXxx
     bool NextATTransmit(Socket& sock, size_t len) { ASSERT(atTask == &kernel::Task::Current()); atTransmitSock = &sock; atTransmitLen = len; return false; }
-    //! Mark an AT command complete from a response callback, for commands that do not end with "OK"
-    void ATComplete() { ASSERT(atResult == ATResult::Pending); atResult = ATResult::OK; }
-    //! Mark an AT command complete from a response callback, for commands that combine OK and an additional response
+    //! Sets the requirements mask for next AT command. ATComplete must be called with all mask bits before the command is considered complete.
     //! @returns false so it can be easily chained between ATLock and ATXxx
-    bool ATCompleteWaitOK();
+    //! Mark the specified requirement mask as complete
+    void ATComplete(uint8_t mask = 1) { ASSERT(atResult == ATResult::Pending); ASSERT((atComplete & mask) == 0); if ((atComplete |= mask) == atRequire) { atResult = ATResult::OK; } }
 
     //! Gets the lock for executing an AT command with response
     //! @returns non-zero if the lock cannot be obtained
@@ -213,6 +210,7 @@ private:
 
     bool process = false;
     ATResult atResult = ATResult::OK;
+    uint8_t atComplete, atRequire;
 
     io::PipePosition lineEnd;
     io::Pipe::Iterator lineFields;

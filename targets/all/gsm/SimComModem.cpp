@@ -138,15 +138,100 @@ async_def(
         async_return(false);
     }
 
-    sock.Sending();
+    sock.Sending(f.len);
     NextATTransmit(sock, f.len);
-    f.type = model == Model::SIM7600 && sock.IsSecure() ? "CH" : "IP";
-    if (await(ATFormat, "+C%sSEND=%d,%d", f.type, sock.channel, f.len))
+    f.type = "IP";
+    if (model == Model::SIM800)
     {
-        sock.SendingComplete();
-        async_return(false);
+        // SIM800 sends just DATA ACCEPT or SEND FAIL
+        NextATResponse(GetDelegate(this, &SimComModem::OnSendResponse800), 2);
     }
-    async_return(true);
+    else
+    {
+        // SIM7600 sends both OK and +CCH/IPSEND response
+        NextATResponse(GetDelegate(this, &SimComModem::OnSendResponse7600), 3);
+        if (sock.IsSecure())
+        {
+            f.type = "CH";
+        }
+    }
+    auto res = (ATResult)await(ATFormat, "+C%sSEND=%d,%d", f.type, sock.channel, f.len);
+    if (sock.IsSending())
+    {
+        MYDBG("Sending TIMED OUT for socket %p", &sock);
+        sock.SendingFailed();
+    }
+    async_return(res == ATResult::OK);
+}
+async_end
+
+async(SimComModem::OnSendResponse800, FNV1a header)
+async_def_sync()
+{
+    if (header == "DATA ACCEPT")
+    {
+        int ch, len;
+        if (InputFieldNum(ch) && InputFieldNum(len))
+        {
+            // data accepted
+            Socket* s = FindSocket(ch, true);
+            if (!s)
+            {
+                MYDBG("Send confirmation (%d) for unallocated TCP socket %d", len, ch);
+            }
+            else
+            {
+                MYTRACE("%d bytes accepted for socket %p", len, s);
+                s->SendingComplete();
+            }
+        }
+        ATComplete(2);   // this event arrives instead of OK
+    }
+    else if (header == "SEND FAIL")
+    {
+        uint8_t ch = Input().Peek(0) - '0';
+        Socket* s = FindSocket(ch, true);
+        if (!s)
+        {
+            MYDBG("Send fail for unallocated TCP socket %d", ch);
+        }
+        else
+        {
+            MYDBG("Sending failed for socket %p", s);
+            s->SendingFailed();
+        }
+        ATComplete(2);   // this event arrives instead of OK
+    }
+}
+async_end
+
+async(SimComModem::OnSendResponse7600, FNV1a header)
+async_def_sync()
+{
+    if (header == "+CCHSEND")
+    {
+        int ch, err;
+        if (InputFieldNum(ch) && InputFieldNum(err))
+        {
+            // data sent
+            Socket* s = FindSocket(ch, true);
+            if (!s)
+            {
+                MYDBG("Send confirmation (%d) for unallocated TLS socket %d", err, ch);
+            }
+            else if (err)
+            {
+                MYDBG("Sending failed (%d) for socket %p", err, s);
+                s->SendingFailed();
+            }
+            else
+            {
+                MYTRACE("Packet sent for socket %p", s);
+                s->SendingComplete();
+            }
+        }
+        ATComplete(2);
+    }
 }
 async_end
 
@@ -253,17 +338,17 @@ async_def()
         if (model == Model::SIM800)
         {
             await(ATLock) ||
-                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveShutOK)) ||
+                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveShutOK), 2) ||
                 await(AT, "+CIPSHUT");
             await(AT, "+CGACT=0,1");
         }
         else
         {
             await(ATLock) ||
-                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
+                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch), 3) ||
                 await(AT, "+CCHSTOP");
             await(ATLock) ||
-                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
+                NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch), 3) ||
                 await(AT, "+NETCLOSE");
         }
     }
@@ -284,7 +369,7 @@ async_def()
     if (model == Model::SIM800)
     {
         await(ATLock) ||
-            NextATResponse(GetDelegate(this, &SimComModem::OnReceivePowerDown)) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceivePowerDown), 2) ||
             await(AT, "+CPOWD=1");
     }
     else
@@ -351,7 +436,6 @@ async_def(
 
     // request modem identification
     if (await(ATLock) ||
-        ATCompleteWaitOK() ||
         NextATResponse(GetDelegate(this, &SimComModem::OnReceiveId)) ||
         await(AT, "I"))
     {
@@ -399,7 +483,6 @@ async_def(
     {
         // additional identification
         if (await(ATLock) ||
-            ATCompleteWaitOK() ||
             NextATResponse(GetDelegate(this, &SimComModem::OnReceiveId)) ||
             await(AT, "+GSV"))    // additional identification
         {
@@ -457,7 +540,7 @@ async(SimComModem::OnReceivePlainIP, FNV1a header)
 async_def_sync()
 {
     // just a simple IP arrives
-    ATComplete();
+    ATComplete(2);
 }
 async_end
 
@@ -468,7 +551,7 @@ async_def_sync()
     {
         int n;
         net.error = !(InputFieldNum(n) && n == 0);
-        ATCompleteWaitOK();
+        ATComplete(2);
     }
 }
 async_end
@@ -478,7 +561,7 @@ async_def_sync()
 {
     if (header == "SHUT OK")
     {
-        ATComplete();
+        ATComplete(2);
     }
 }
 async_end
@@ -488,7 +571,7 @@ async_def_sync()
 {
     if (header == "NORMAL POWER DOWN")
     {
-        ATComplete();
+        ATComplete(2);
     }
 }
 async_end
@@ -650,7 +733,7 @@ async_def()
 
         // get local IP (doesn't send an OK reply, just one line with the address)
         if (await(ATLock) ||
-            NextATResponse(GetDelegate(this, &SimComModem::OnReceivePlainIP)) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceivePlainIP), 2) ||
             await(AT, "+CIFSR"))
         {
             async_return(false);
@@ -670,12 +753,12 @@ async_def()
         // activate TCP and TLS
         if (await(ATLock) ||
             NextATTimeout(Timeout::Seconds(60)) ||
-            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch), 3) ||
             await(AT, "+NETOPEN") ||
             net.error ||
             await(AT, "+CCHSET=1,0") ||
             await(ATLock) ||
-            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch)) ||
+            NextATResponse(GetDelegate(this, &SimComModem::OnReceiveNetCch), 3) ||
             await(AT, "+CCHSTART") ||
             net.error)
         {
@@ -960,53 +1043,6 @@ async_def_sync()
                 s->Incoming();
                 RequestProcessing();
             }
-            async_return(true);
-        }
-
-        case fnv1a("+CCHSEND"):
-        {
-            int ch, err;
-            if (InputFieldNum(ch) && InputFieldNum(err))
-            {
-                // data sent
-                Socket* s = FindSocket(ch, true);
-                if (!s)
-                {
-                    MYDBG("Send confirmation (%d) for unallocated TLS socket %d", err, ch);
-                }
-                else if (err)
-                {
-                    MYDBG("Sending failed (%d) for socket %p", err, s);
-                }
-                else
-                {
-                    MYTRACE("Packet sent for socket %p", s);
-                    s->SendingComplete();
-                    RequestProcessing();
-                }
-            }
-            async_return(true);
-        }
-
-        case fnv1a("DATA ACCEPT"):
-        {
-            int ch, len;
-            if (InputFieldNum(ch) && InputFieldNum(len))
-            {
-                // data accepted
-                Socket* s = FindSocket(ch, true);
-                if (!s)
-                {
-                    MYDBG("Send confirmation (%d) for unallocated TCP socket %d", len, ch);
-                }
-                else
-                {
-                    MYTRACE("%d bytes accepted for socket %p", len, s);
-                    s->SendingComplete();
-                    RequestProcessing();
-                }
-            }
-            ATComplete();   // this event arrives instead of OK
             async_return(true);
         }
 

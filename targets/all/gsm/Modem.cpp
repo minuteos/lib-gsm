@@ -224,6 +224,8 @@ async_def(
                         if (f.s->DataToSend())
                         {
                             await(SendPacketImpl, *f.s);
+                            // always continue processing after send attempt
+                            RequestProcessing();
                         }
 
                         if (f.s->DataToReceive())
@@ -243,6 +245,12 @@ async_def(
                         {
                             await(CheckIncomingImpl, *f.s);
                         }
+                    }
+
+                    if (atResult != ATResult::OK)
+                    {
+                        MYDBG("AT sequence broken");
+                        break;
                     }
 
                     if (!sockets)
@@ -314,7 +322,7 @@ async_def(
                 else
                 {
                     MYTRACE(TRACE_SOCKETS, "[%p] >> sending %d+%d=%d", atTransmitSock, atTransmitSock->OutputReader().Position(), atTransmitLen, atTransmitSock->OutputReader().Position() + atTransmitLen);
-                    UNUSED size_t sent = await(atTransmitSock->OutputReader().MoveTo, tx, atTransmitLen);
+                    UNUSED size_t sent = await(atTransmitSock->OutputReader().CopyTo, tx, 0, atTransmitLen);
                     MYTRACE(TRACE_SOCKETS, "[%p] >> sent up to %d", atTransmitSock, atTransmitSock->OutputReader().Position());
                     ASSERT(sent == atTransmitLen);
                     atTransmitSock = NULL;
@@ -391,17 +399,13 @@ async_def(
                 switch (hash)
                 {
                     case fnv1a("OK"):
-                        switch (atResult)
+                        if (atResult == ATResult::Pending)
                         {
-                            case ATResult::Pending:
-                                atResult = atResponse ? ATResult::PendingWasOK : ATResult::OK;
-                                break;
-                            case ATResult::PendingWaitOK:
-                                atResult = ATResult::OK;
-                                break;
-                            default:
-                                MYDBG("!! Unexpected OK");
-                                break;
+                            ATComplete();
+                        }
+                        else
+                        {
+                            MYDBG("!! Unexpected OK");
                         }
                         break;
 
@@ -511,29 +515,6 @@ async_def(
 }
 async_end
 
-bool Modem::ATCompleteWaitOK()
-{
-    switch (atResult)
-    {
-    case ATResult::Pending:
-        // the command did not receive OK yet
-        atResult = ATResult::PendingWaitOK;
-        break;
-    case ATResult::PendingWaitOK:
-        // additional response?
-        break;
-    case ATResult::PendingWasOK:
-        // OK received before completion, we're done
-        atResult = ATResult::OK;
-        break;
-    default:
-        // command not pending
-        ASSERT(false);
-        break;
-    }
-    return false;
-}
-
 async(Modem::ATLock)
 async_def()
 {
@@ -556,6 +537,8 @@ async_def()
     await_acquire(signals, Signal::ATLock);
     atTask = &kernel::Task::Current();
     atResult = ATResult::Pending;
+    atRequire = 1;
+    atComplete = 0;
     async_return(false);
 }
 async_end

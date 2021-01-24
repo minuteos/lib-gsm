@@ -117,6 +117,9 @@ private:
 
     async(OnEvent, FNV1a id) override;
 
+    async(OnSendResponse800, FNV1a header);
+    async(OnSendResponse7600, FNV1a header);
+
     async(OnReceiveId, FNV1a header);
     async(OnReceivePlainIP, FNV1a header);
     async(OnReceiveNetCch, FNV1a header);
