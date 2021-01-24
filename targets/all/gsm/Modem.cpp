@@ -98,7 +98,6 @@ async_def(
 )
 {
     // we may not need to run, preprocess sockets to find if there is an active one
-    process = false;
     MYTRACE(TRACE_SOCKETS, "Preprocessing sockets...");
     for (auto& s: sockets)
     {
@@ -110,7 +109,8 @@ async_def(
         else if (s.IsNew())
         {
             // the socket is alive and needs processing
-            process = true;
+            MYTRACE(TRACE_SOCKETS, "Socket %p is alive, will power on...", &s);
+            f.next = &s;
         }
         else
         {
@@ -129,12 +129,14 @@ async_def(
         }
     }
 
-    if (!process)
+    if (!f.next)
     {
         MYTRACE(TRACE_SOCKETS, "No active sockets, not starting...");
         signals &= ~Signal::TaskActive;
         async_return(false);
     }
+
+    process = true;
 
     PowerDiagnostic(ModemOptions::CallbackType::PowerSend, "ON");
     if (!await(PowerOnImpl))
