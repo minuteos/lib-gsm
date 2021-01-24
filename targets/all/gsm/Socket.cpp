@@ -23,6 +23,7 @@ async_end
 async(Socket::Disconnect, Timeout timeout)
 async_def()
 {
+    Output().Close();
     flags |= SocketFlags::AppClose;
     owner->RequestProcessing();
     async_return(await_mask_not_timeout(flags, SocketFlags::ModemClosed, 0, timeout));

@@ -197,6 +197,8 @@ private:
 
     void Finished()
     {
+        Output().Close();
+        InputWriter().Close();
         flags = (flags & ~(SocketFlags::ModemConnecting | SocketFlags::ModemReference)) | SocketFlags::ModemConnected | SocketFlags::ModemClosed;
     }
 
