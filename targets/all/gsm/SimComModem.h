@@ -32,6 +32,7 @@ private:
     struct SimComSocket : Socket
     {
         size_t incoming, outgoing, lastSent;
+        bool error;
         uint8_t channel;
     };
 

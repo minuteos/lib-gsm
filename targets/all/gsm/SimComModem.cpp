@@ -124,10 +124,32 @@ async_end
 
 async(SimComModem::SendPacketImpl, Socket& sock)
 async_def(
+    SimComModem* self;
+    SimComSocket* sock;
     size_t len;
     const char* type;
+
+    async(OnReceiveAck, FNV1a header)
+    async_def_sync()
+    {
+        int sent, ack, nak;
+        if (header == "+CIPACK" && self->InputFieldNum(sent) && self->InputFieldNum(ack) && self->InputFieldNum(nak))
+        {
+            int curPos = unsafe_cast<int>(sock->OutputReader().Position());
+            if (curPos != sent)
+            {
+                MYDBG("Recovering after error, advancing %d to %d", sent - curPos, sent);
+                sock->OutputReader().Advance(sent - curPos);
+            }
+            sock->error = false;
+            self->ATComplete(2);
+        }
+    }
+    async_end
 )
 {
+    f.self = this;
+    f.sock = &S(sock);
     f.len = std::min(size_t(MaxPacket), sock.OutputReader().Available());
 
     if (!f.len)
@@ -138,6 +160,29 @@ async_def(
     if (await(ATLock))
     {
         async_return(false);
+    }
+
+    if (model == Model::SIM800 && S(sock).error)
+    {
+        // check actual ACK status after send failure
+        NextATResponse(GetDelegate(&f, &__FRAME::OnReceiveAck), 3);
+        if (await(ATFormat, "+CIPACK=%d" , S(sock).channel))
+        {
+            async_return(false);
+        }
+
+        // update output length, there may be changes...
+        f.len = std::min(size_t(MaxPacket), sock.OutputReader().Available());
+        if (!f.len)
+        {
+            async_return(0);
+        }
+
+        // re-acquire lock
+        if (await(ATLock))
+        {
+            async_return(false);
+        }
     }
 
     S(sock).outgoing = S(sock).lastSent = f.len;
@@ -207,6 +252,7 @@ async_def_sync()
             MYDBG("Sending failed for socket %p", s);
             s->SendingFinished();
             S(s)->outgoing = 0;
+            S(s)->error = true;
         }
         ATComplete(2);   // this event arrives instead of OK
     }
