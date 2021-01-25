@@ -130,7 +130,7 @@ protected:
     //! Sets the requirements mask for next AT command. ATComplete must be called with all mask bits before the command is considered complete.
     //! @returns false so it can be easily chained between ATLock and ATXxx
     //! Mark the specified requirement mask as complete
-    void ATComplete(uint8_t mask = 1) { ASSERT(atResult == ATResult::Pending); ASSERT((atComplete & mask) == 0); if ((atComplete |= mask) == atRequire) { atResult = ATResult::OK; } }
+    void ATComplete(uint8_t mask = 1) { ASSERT(atResult == ATResult::Pending); if ((atComplete |= mask) == atRequire) { atResult = ATResult::OK; } }
 
     //! Gets the lock for executing an AT command with response
     //! @returns non-zero if the lock cannot be obtained
