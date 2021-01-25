@@ -32,12 +32,13 @@ bool SimComModem::TryAllocateImpl(Socket& sock)
             for (auto& other: Sockets())
             {
                 if (other.IsAllocated())
-                    RESBIT(avail, other.channel);
+                    RESBIT(avail, S(other).channel);
             }
             if (avail)
             {
-                sock.Allocate(__builtin_ctz(avail));
-                MYDBG("%s channel %d bound to socket %p", "TLS/TCP", sock.channel, &sock);
+                S(sock).channel = __builtin_ctz(avail);
+                sock.Allocate();
+                MYDBG("%s channel %d bound to socket %p", "TLS/TCP", S(sock).channel, &sock);
                 return true;
             }
             break;
@@ -50,12 +51,13 @@ bool SimComModem::TryAllocateImpl(Socket& sock)
             for (auto& other: Sockets())
             {
                 if (other.IsSecure() == sock.IsSecure() && other.IsAllocated())
-                    RESBIT(avail, other.channel);
+                    RESBIT(avail, S(other).channel);
             }
             if (avail)
             {
-                sock.Allocate(__builtin_ctz(avail));
-                MYDBG("%s channel %d bound to socket %p", sock.IsSecure() ? "TLS" : "TCP", sock.channel, &sock);
+                S(sock).channel = __builtin_ctz(avail);
+                sock.Allocate();
+                MYDBG("%s channel %d bound to socket %p", sock.IsSecure() ? "TLS" : "TCP", S(sock).channel, &sock);
                 return true;
             }
             break;
@@ -79,7 +81,7 @@ async_def()
             {
                 TcpStatus(TcpStatus::TlsError);
             }
-            else if (await(ATFormat, "+CIPSTART=%d,\"TCP\",\"%s\",\"%d\"", sock.channel, sock.host, sock.port))
+            else if (await(ATFormat, "+CIPSTART=%d,\"TCP\",\"%s\",\"%d\"", ((SimComSocket&)sock).channel, sock.host, sock.port))
             {
                 sock.Disconnected();
                 TcpStatus(TcpStatus::ConnectionError);
@@ -94,7 +96,7 @@ async_def()
         case Model::SIM7600:
             if (sock.IsSecure())
             {
-                if (!await(ATFormat, "+CCHOPEN=%d,\"%s\",%d,2", sock.channel, sock.host, sock.port))
+                if (!await(ATFormat, "+CCHOPEN=%d,\"%s\",%d,2", ((SimComSocket&)sock).channel, sock.host, sock.port))
                 {
                     sock.Bound();
                     async_return(true);
@@ -102,7 +104,7 @@ async_def()
             }
             else
             {
-                if (!await(ATFormat, "+CIPOPEN=%d,\"TCP\",\"%s\",%d", sock.channel, sock.host, sock.port))
+                if (!await(ATFormat, "+CIPOPEN=%d,\"TCP\",\"%s\",%d", ((SimComSocket&)sock).channel, sock.host, sock.port))
                 {
                     sock.Bound();
                     async_return(true);
@@ -138,7 +140,8 @@ async_def(
         async_return(false);
     }
 
-    sock.Sending(f.len);
+    S(sock).outgoing = S(sock).lastSent = f.len;
+    sock.Sending();
     NextATTransmit(sock, f.len);
     f.type = "IP";
     if (model == Model::SIM800)
@@ -155,11 +158,12 @@ async_def(
             f.type = "CH";
         }
     }
-    auto res = (ATResult)await(ATFormat, "+C%sSEND=%d,%d", f.type, sock.channel, f.len);
+    auto res = (ATResult)await(ATFormat, "+C%sSEND=%d,%d", f.type, S(sock).channel, f.len);
     if (sock.IsSending())
     {
         MYDBG("Sending TIMED OUT for socket %p", &sock);
-        sock.SendingFailed();
+        sock.SendingFinished();
+        S(sock).outgoing = 0;
     }
     async_return(res == ATResult::OK);
 }
@@ -182,7 +186,10 @@ async_def_sync()
             else
             {
                 MYTRACE("%d bytes accepted for socket %p", len, s);
-                s->SendingComplete();
+                ASSERT((size_t)len == S(s)->outgoing);
+                s->SendingFinished();
+                s->OutputReader().Advance(len);
+                S(s)->outgoing = 0;
             }
         }
         ATComplete(2);   // this event arrives instead of OK
@@ -198,7 +205,8 @@ async_def_sync()
         else
         {
             MYDBG("Sending failed for socket %p", s);
-            s->SendingFailed();
+            s->SendingFinished();
+            S(s)->outgoing = 0;
         }
         ATComplete(2);   // this event arrives instead of OK
     }
@@ -219,15 +227,20 @@ async_def_sync()
             {
                 MYDBG("Send confirmation (%d) for unallocated TLS socket %d", err, ch);
             }
-            else if (err)
-            {
-                MYDBG("Sending failed (%d) for socket %p", err, s);
-                s->SendingFailed();
-            }
             else
             {
-                MYTRACE("Packet sent for socket %p", s);
-                s->SendingComplete();
+                if (err)
+                {
+                    MYDBG("Sending failed (%d) for socket %p", err, s);
+                }
+                else
+                {
+                    MYTRACE("Packet sent for socket %p", s);
+                    s->OutputReader().Advance(S(s)->outgoing);
+                }
+
+                S(s)->outgoing = 0;
+                s->SendingFinished();
             }
         }
         ATComplete(2);
@@ -239,7 +252,7 @@ async(SimComModem::ReceivePacketImpl, Socket& sock)
 async_def()
 {
     sock.IncomingRequested();
-    async_return(!await(ATFormat, "+CCHRECV=%d,%d", sock.channel, MaxPacket));
+    async_return(!await(ATFormat, "+CCHRECV=%d,%d", S(sock).channel, MaxPacket));
 }
 async_end
 
@@ -257,7 +270,7 @@ async_def()
     switch (model)
     {
         case Model::SIM800:
-            if (!await(ATFormat, "+CIPCLOSE=%d", sock.channel))
+            if (!await(ATFormat, "+CIPCLOSE=%d", S(sock).channel))
             {
                 async_return(true);
             }
@@ -266,14 +279,14 @@ async_def()
         case Model::SIM7600:
             if (sock.IsSecure())
             {
-                if (!await(ATFormat, "+CCHCLOSE=%d", sock.channel))
+                if (!await(ATFormat, "+CCHCLOSE=%d", S(sock).channel))
                 {
                     async_return(true);
                 }
             }
             else
             {
-                if (!await(ATFormat, "+CIPCLOSE=%d", sock.channel))
+                if (!await(ATFormat, "+CIPCLOSE=%d", S(sock).channel))
                 {
                     async_return(true);
                 }

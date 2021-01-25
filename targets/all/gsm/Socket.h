@@ -78,10 +78,7 @@ private:
     io::Pipe rx, tx;
     SocketFlags flags;
     uint16_t port;
-    uint8_t channel;
-    size_t incoming;
-    size_t outgoing;
-    char host[];
+    const char* host;
 
     io::PipeReader OutputReader() { return tx; }
     io::PipeWriter InputWriter() { return rx; }
@@ -146,10 +143,9 @@ private:
         return !!(flags & SocketFlags::ModemAllocated);
     }
 
-    void Allocate(uint8_t channel)
+    void Allocate()
     {
         ASSERT(!IsAllocated());
-        this->channel = channel;
         flags |= SocketFlags::ModemAllocated;
     }
 
@@ -183,26 +179,16 @@ private:
         flags &= ~(SocketFlags::ModemIncoming | SocketFlags::CheckIncoming);
     }
 
-    void Sending(size_t length)
+    void Sending()
     {
         ASSERT(IsConnected() && CanSend());
         flags |= SocketFlags::ModemSending;
-        outgoing = length;
     }
 
-    void SendingComplete()
+    void SendingFinished()
     {
         ASSERT(!CanSend() && IsSending());
         flags &= ~SocketFlags::ModemSending;
-        OutputReader().Advance(outgoing);
-        outgoing = 0;
-    }
-
-    void SendingFailed()
-    {
-        ASSERT(!CanSend() && IsSending());
-        flags &= ~SocketFlags::ModemSending;
-        outgoing = 0;
     }
 
     void Disconnected()

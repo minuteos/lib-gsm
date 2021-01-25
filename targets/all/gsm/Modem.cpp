@@ -42,15 +42,22 @@ async_end
 
 Socket* Modem::CreateSocket(Span host, uint32_t port, bool tls)
 {
-    auto sock = (Socket*)malloc(sizeof(Socket) + host.Length() + 1);
+    auto size = SocketSizeImpl();
+    auto sock = (Socket*)malloc(size + host.Length() + 1);
     if (!sock)
         return NULL;
 
     new(sock) Socket(this, &process);
+    if (size > sizeof(Socket))
+    {
+        memset(sock + 1, 0, size - sizeof(Socket));
+    }
     sock->flags = SocketFlags::AppReference | (SocketFlags::AppSecure * tls);
     sock->port = port;
-    memcpy(sock->host, host.Pointer(), host.Length());
-    sock->host[host.Length()] = 0;
+    auto pHost = (char*)sock + size;
+    memcpy(pHost, host.Pointer(), host.Length());
+    pHost[host.Length()] = 0;
+    sock->host = pHost;
 
     sockets.Append(sock);
 
@@ -323,7 +330,6 @@ async_def(
                 {
                     MYTRACE(TRACE_SOCKETS, "[%p] >> sending %d+%d=%d", atTransmitSock, atTransmitSock->OutputReader().Position(), atTransmitLen, atTransmitSock->OutputReader().Position() + atTransmitLen);
                     UNUSED size_t sent = await(atTransmitSock->OutputReader().CopyTo, tx, 0, atTransmitLen);
-                    MYTRACE(TRACE_SOCKETS, "[%p] >> sent up to %d", atTransmitSock, atTransmitSock->OutputReader().Position());
                     ASSERT(sent == atTransmitLen);
                     atTransmitSock = NULL;
                 }

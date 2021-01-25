@@ -149,6 +149,7 @@ protected:
 
     async(NetworkActive, Timeout timeout = Timeout::Infinite);
 
+    virtual size_t SocketSizeImpl() const { return sizeof(Socket); }
     virtual bool TryAllocateImpl(Socket& sock) = 0;
     virtual async(ConnectImpl, Socket& sock) = 0;
     virtual async(SendPacketImpl, Socket& sock) = 0;
@@ -180,8 +181,6 @@ protected:
     io::PipeWriter Output() { return tx; }
     ModemOptions& Options() { return options; }
     SelfLinkedList<Socket>& Sockets() { return sockets; }
-    Socket* FindSocket(uint8_t channel) { for (auto& s: sockets) { if (s.IsAllocated() && s.channel == channel) return &s; } return NULL; }
-    Socket* FindSocket(uint8_t channel, bool secure) { for (auto& s: sockets) { if (s.IsAllocated() && s.IsSecure() == secure && s.channel == channel) return &s; } return NULL; }
 
     io::Pipe::Iterator& InputField() { return lineFields; }
     unsigned InputFieldCount() const;

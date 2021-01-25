@@ -28,6 +28,19 @@ namespace gsm
 
 class SimComModem : public Modem
 {
+private:
+    struct SimComSocket : Socket
+    {
+        size_t incoming, outgoing, lastSent;
+        uint8_t channel;
+    };
+
+    SimComSocket* FindSocket(uint8_t channel) { for (auto& s: Sockets()) { if (s.IsAllocated() && S(s).channel == channel) return S(&s); } return NULL; }
+    SimComSocket* FindSocket(uint8_t channel, bool secure) { for (auto& s: Sockets()) { if (s.IsAllocated() && s.IsSecure() == secure && S(s).channel == channel) return (SimComSocket*)&s; } return NULL; }
+
+    SimComSocket& S(Socket& sock) { return (SimComSocket&)sock; }
+    SimComSocket* S(Socket* sock) { return (SimComSocket*)sock; }
+
 public:
     SimComModem(ModemOptions& options, USART& usart, GPIOPin powerEnable, GPIOPin powerButton, GPIOPin status, GPIOPin dtr)
         : Modem(io::DuplexPipe(gsmRx, gsmTx), options), usartRx(usart, gsmRx), usartTx(usart, gsmTx), powerEnable(powerEnable), powerButton(powerButton), status(status), dtr(dtr)
@@ -47,6 +60,7 @@ public:
     Model DetectedModel() const { return model; }
 
 protected:
+    virtual size_t SocketSizeImpl() const final override { return sizeof(SimComSocket); }
     virtual bool TryAllocateImpl(Socket& sock) final override;
     virtual async(ConnectImpl, Socket& sock) final override;
     virtual async(SendPacketImpl, Socket& sock) final override;
