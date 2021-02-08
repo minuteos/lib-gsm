@@ -87,6 +87,10 @@ public:
     enum SimStatus SimStatus() const { return simStatus; }
     enum TcpStatus TcpStatus() const { return tcpStatus; }
 
+    Span GetApn() const { return options.GetApn(); }
+    Span GetApnUser() const { return options.GetApnUser(); }
+    Span GetApnPassword() const { return options.GetApnPassword(); }
+
     const class NetworkInfo& NetworkInfo() const { return netInfo; }
 
     bool IsActive() const { return !!(signals & Signal::TaskActive); }
