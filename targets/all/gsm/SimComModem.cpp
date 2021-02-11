@@ -877,9 +877,12 @@ async_def_sync()
                 reg.status = (Registration)stat;
                 reg.active = reg.status == Registration::Home || reg.status == Registration::Roaming;
 
-                GsmStatus(reg.status == Registration::Home ? GsmStatus::Ok :
-                    reg.status == Registration::Roaming ? GsmStatus::Roaming :
-                    GsmStatus::Searching);
+                if (!IsDisconnecting()) // do not update status during network disconnect
+                {
+                    GsmStatus(reg.status == Registration::Home ? GsmStatus::Ok :
+                        reg.status == Registration::Roaming ? GsmStatus::Roaming :
+                        GsmStatus::Searching);
+                }
 
                 if (InputFieldHex(lac) && InputFieldHex(ci))
                 {

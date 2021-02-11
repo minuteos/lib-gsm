@@ -276,7 +276,7 @@ async_def(
                     }
                 }
 
-                signals &= ~Signal::NetworkActive;   // disable further connections
+                signals = (signals & ~Signal::NetworkActive) | Signal::NetworkDisconnecting;   // disable further connections
                 await(DisconnectNetworkImpl);
             }
         }

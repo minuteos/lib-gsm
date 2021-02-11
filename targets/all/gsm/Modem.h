@@ -94,6 +94,7 @@ public:
     const class NetworkInfo& NetworkInfo() const { return netInfo; }
 
     bool IsActive() const { return !!(signals & Signal::TaskActive); }
+    bool IsDisconnecting() const { return !!(signals & Signal::NetworkDisconnecting); }
 
     int Rssi() const { return rssi; }
 
@@ -206,6 +207,7 @@ private:
         TaskActive = BIT(0),
         RxTaskActive = BIT(1),
         NetworkActive = BIT(2),
+        NetworkDisconnecting = BIT(3),
         ATLock = BIT(4),
     } signals = Signal::None;
 
