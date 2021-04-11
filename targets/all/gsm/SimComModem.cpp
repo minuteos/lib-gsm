@@ -1172,4 +1172,49 @@ async_def_sync()
 }
 async_end
 
+async(SimComModem::SendMessageImpl, Message& msg)
+async_def(
+    SimComModem* self;
+    Message* msg;
+
+    async(OnSendMessageResponse, FNV1a header)
+    async_def_sync()
+    {
+        if (header == "+CMGS")
+        {
+            self->ATComplete(2);
+            int mr;
+            self->InputFieldNum(mr);
+            msg->SendingComplete(mr);
+        }
+    }
+    async_end
+)
+{
+    if (await(AT, "+CMGF=1"))
+    {
+        async_return(false);
+    }
+
+    if (await(ATLock))
+    {
+        async_return(false);
+    }
+
+    f.self = this;
+    f.msg = &msg;
+
+    msg.Sending();
+    NextATTransmit(msg);
+    NextATResponse(GetDelegate(&f, &__FRAME::OnSendMessageResponse), 3);
+    auto res = (ATResult)await(ATFormat, "+CMGS=\"%b\"", msg.Recipient());
+    if (msg.IsSending())
+    {
+        MYDBG("Sending TIMED OUT for message %p", &msg);
+        async_return(false);
+    }
+    async_return(res == ATResult::OK);
+}
+async_end
+
 }

@@ -69,6 +69,8 @@ protected:
     virtual async(CheckIncomingImpl, Socket& sock) final override;
     virtual async(CloseImpl, Socket& sock) final override;
 
+    virtual async(SendMessageImpl, Message& msg) final override;
+
 private:
     enum struct Registration
     {

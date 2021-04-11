@@ -16,6 +16,7 @@
 #include <collections/SelfLinkedList.h>
 
 #include "Socket.h"
+#include "Message.h"
 #include "ModemOptions.h"
 
 namespace gsm
@@ -111,6 +112,7 @@ public:
     async(WaitForPowerOn, Timeout timeout);
     async(WaitForPowerOff, Timeout timeout);
     Socket* CreateSocket(Span host, uint32_t port, bool tls);
+    Message* SendMessage(Span recipient, Span text);
 
 protected:
     enum struct ATResult : int8_t
@@ -133,6 +135,9 @@ protected:
     //! Sets the socket from which data will be transmitted during the AT command
     //! @returns false so it can be easily chained between ATLock and ATXxx
     bool NextATTransmit(Socket& sock, size_t len) { ASSERT(atTask == &kernel::Task::Current()); atTransmitSock = &sock; atTransmitLen = len; return false; }
+    //! Sets the message which will be transmitted during the AT command
+    //! @returns false so it can be easily chained between ATLock and ATXxx
+    bool NextATTransmit(Message& msg) { ASSERT(atTask == &kernel::Task::Current()); atTransmitMsg = &msg; return false; }
     //! Sets the requirements mask for next AT command. ATComplete must be called with all mask bits before the command is considered complete.
     //! @returns false so it can be easily chained between ATLock and ATXxx
     //! Mark the specified requirement mask as complete
@@ -156,12 +161,15 @@ protected:
     async(NetworkActive, Timeout timeout = Timeout::Infinite);
 
     virtual size_t SocketSizeImpl() const { return sizeof(Socket); }
+    virtual size_t MessageSizeImpl() const { return sizeof(Message); }
     virtual bool TryAllocateImpl(Socket& sock) = 0;
     virtual async(ConnectImpl, Socket& sock) = 0;
     virtual async(SendPacketImpl, Socket& sock) = 0;
     virtual async(ReceivePacketImpl, Socket& sock) = 0;
     virtual async(CheckIncomingImpl, Socket& sock) = 0;
     virtual async(CloseImpl, Socket& sock) = 0;
+
+    virtual async(SendMessageImpl, Message& msg) async_def_return(false);
 
     virtual async(PowerOnImpl) async_def_return(true);
     virtual async(PowerOffImpl) async_def_return(true);
@@ -201,6 +209,7 @@ private:
     io::PipeWriter tx;
     ModemOptions& options;
     SelfLinkedList<Socket> sockets;
+    SelfLinkedList<Message> messages;
 
     enum struct Signal
     {
@@ -210,6 +219,7 @@ private:
         NetworkActive = BIT(2),
         NetworkDisconnecting = BIT(3),
         ATLock = BIT(4),
+        RequireActive = BIT(5), // set if there are active sockets or messsages
     } signals = Signal::None;
 
     DECLARE_FLAG_ENUM(Signal);
@@ -224,6 +234,7 @@ private:
     Timeout atNextTimeout;
     AsyncDelegate<FNV1a> atResponse;
     Socket* atTransmitSock;
+    Message* atTransmitMsg;
     size_t atTransmitLen;
     Socket* rxSock;
     size_t rxLen = 0;
@@ -247,7 +258,11 @@ private:
     void ReleaseSocket(Socket* sock);
     void DestroySocket(Socket* sock);
 
+    void ReleaseMessage(Message* msg);
+    void DestroyMessage(Message* msg);
+
     friend class Socket;
+    friend class Message;
 };
 
 DEFINE_FLAG_ENUM(Modem::Signal);

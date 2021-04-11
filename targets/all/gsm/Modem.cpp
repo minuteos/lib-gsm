@@ -67,11 +67,43 @@ Socket* Modem::CreateSocket(Span host, uint32_t port, bool tls)
     sock->host = pHost;
 
     sockets.Append(sock);
+    signals |= Signal::RequireActive;
 
     EnsureRunning();
 
     MYDBG("Socket %p to %s:%d created", sock, sock->host, sock->port);
     return sock;
+}
+
+Message* Modem::SendMessage(Span recipient, Span text)
+{
+    auto size = MessageSizeImpl();
+    auto msg = (Message*)malloc(size + recipient.Length() + text.Length());
+    if (!msg)
+    {
+        return NULL;
+    }
+
+    new(msg) Message(this);
+    if (size > sizeof(Message))
+    {
+        memset(msg + 1, 0, size - sizeof(Message));
+    }
+    auto pData = (char*)msg + size;
+    msg->flags = MessageFlags::AppReference | MessageFlags::ModemWillSend;
+    msg->data = pData;
+    msg->lenRcpt = recipient.Length();
+    msg->lenTxt = text.Length();
+    memcpy(pData, recipient.Pointer(), msg->lenRcpt);
+    memcpy(pData + msg->lenRcpt, text.Pointer(), msg->lenTxt);
+
+    messages.Append(msg);
+    signals |= Signal::RequireActive;
+
+    EnsureRunning();
+
+    MYDBG("Message %p to %b created: %b", msg, msg->Recipient(), msg->Text());
+    return msg;
 }
 
 void Modem::DestroySocket(Socket* sock)
@@ -95,6 +127,26 @@ void Modem::ReleaseSocket(Socket* sock)
     EnsureRunning();
 }
 
+void Modem::DestroyMessage(Message* msg)
+{
+    ASSERT(!msg->next);
+    ASSERT(!messages.Contains(msg));
+    MYDBG("Message %p to %b destroyed", msg, msg->Recipient());
+    msg->~Message();
+    free(msg);
+}
+
+void Modem::ReleaseMessage(Message* msg)
+{
+    ASSERT(messages.Contains(msg));
+    ASSERT(msg->flags & MessageFlags::AppReference);
+
+    MYDBG("Message %p to %b released by app", msg, msg->Recipient());
+    msg->flags -= MessageFlags::AppReference;
+    // we need the task to run, at least to destroy the message
+    EnsureRunning();
+}
+
 void Modem::EnsureRunning()
 {
     RequestProcessing();
@@ -107,8 +159,8 @@ void Modem::EnsureRunning()
 
 async(Modem::Task)
 async_def(
-    Socket* s;
-    Socket* next;
+    union { Socket* s; Message* m; };
+    union { Socket* next; Message* mNext; };
 )
 {
     // we may not need to run, preprocess sockets to find if there is an active one
@@ -143,9 +195,19 @@ async_def(
         }
     }
 
-    if (!f.next)
+    // destroy old messages
+    for (auto& manip: messages.Manipulate())
     {
-        MYTRACE(TRACE_SOCKETS, "No active sockets, not starting...");
+        if (manip.Element().CanDelete())
+        {
+            // delete message
+            DestroyMessage(&manip.Remove());
+        }
+    }
+
+    if (!f.next && !messages)
+    {
+        MYTRACE(TRACE_SOCKETS, "No active sockets or messages to send, not starting...");
         signals &= ~Signal::TaskActive;
         async_return(false);
     }
@@ -197,7 +259,7 @@ async_def(
 
                 while (await_acquire_zero(process, 1))
                 {
-                    MYTRACE(TRACE_SOCKETS, "Processing sockets...");
+                    MYTRACE(TRACE_SOCKETS, "Processing...");
 
                     // disconnect sockets
                     for (f.s = sockets.First(); f.s && !rxLen; f.s = f.next)
@@ -261,17 +323,41 @@ async_def(
                         }
                     }
 
+                    // send messages
+                    for (f.m = messages.First(); f.m && !rxLen; f.m = f.m->next)
+                    {
+                        if (f.m->ShouldSend())
+                        {
+                            if (!await(SendMessageImpl, *f.m))
+                            {
+                                f.m->SendingFailed();
+                            }
+                            // always continue processing after send attempt
+                            RequestProcessing();
+                        }
+                    }
+
+                    // remove processed messages
+                    for (auto& manip: messages.Manipulate())
+                    {
+                        if (manip.Element().CanDelete())
+                        {
+                            DestroyMessage(&manip.Remove());
+                        }
+                    }
+
                     if (atResult != ATResult::OK)
                     {
                         MYDBG("AT sequence broken");
                         break;
                     }
 
-                    if (!sockets)
+                    if (!sockets && !messages)
                     {
-                        if (!await_mask_not_timeout(sockets, ~0u, 0, powerOffTimeout))
+                        signals -= Signal::RequireActive;
+                        if (!await_mask_not_timeout(signals, Signal::RequireActive, 0, powerOffTimeout))
                         {
-                            MYDBG("No sockets for a while, turning off modem");
+                            MYDBG("No activity for a while, turning off modem");
                             // further processing requests will force the modem to restart
                             process = false;
                             break;
@@ -329,16 +415,25 @@ async_def(
         {
             case '>':
                 rx.Advance(1);
-                if (!atTransmitSock)
-                {
-                    MYDBG("!! UNEXPECTED TRANSMIT PROMPT");
-                }
-                else
+                if (atTransmitSock)
                 {
                     MYTRACE(TRACE_SOCKETS, "[%p] >> sending %d+%d=%d", atTransmitSock, atTransmitSock->OutputReader().Position(), atTransmitLen, atTransmitSock->OutputReader().Position() + atTransmitLen);
                     UNUSED size_t sent = await(atTransmitSock->OutputReader().CopyTo, tx, 0, atTransmitLen);
                     ASSERT(sent == atTransmitLen);
                     atTransmitSock = NULL;
+                }
+                else if (atTransmitMsg)
+                {
+                    MYTRACE(TRACE_SOCKETS, "[%p] >> sending message %b", atTransmitMsg, atTransmitMsg->Text());
+                    UNUSED size_t sent = await(tx.Write, atTransmitMsg->Text());
+                    ASSERT(sent == atTransmitMsg->Text().Length());
+                    sent = await(tx.Write, BYTES(26));   // send CTRL+Z
+                    ASSERT(sent);
+                    atTransmitMsg = NULL;
+                }
+                else
+                {
+                    MYDBG("!! UNEXPECTED TRANSMIT PROMPT");
                 }
                 break;
 
