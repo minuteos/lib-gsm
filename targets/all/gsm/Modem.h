@@ -108,6 +108,7 @@ public:
     void PowerOffTimeout(Timeout timeout) { ASSERT(timeout.IsRelative()); powerOffTimeout = timeout; }
 
     async(WaitForIdle, Timeout timeout);
+    async(WaitForPowerOn, Timeout timeout);
     async(WaitForPowerOff, Timeout timeout);
     Socket* CreateSocket(Span host, uint32_t port, bool tls);
 

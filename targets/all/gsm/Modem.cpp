@@ -25,8 +25,15 @@
 namespace gsm
 {
 
+async(Modem::WaitForPowerOn, Timeout timeout)
+async_def_once()
+{
+    async_return(await_mask_timeout(signals, Signal::RxTaskActive, Signal::RxTaskActive, timeout));
+}
+async_end
+
 async(Modem::WaitForIdle, Timeout timeout)
-async_def()
+async_def_once()
 {
     async_return(await_mask_timeout(sockets, ~0, 0, timeout));
 }
@@ -34,7 +41,7 @@ async_end
 
 
 async(Modem::WaitForPowerOff, Timeout timeout)
-async_def()
+async_def_once()
 {
     async_return(await_mask_not_timeout(signals, Signal::TaskActive, Signal::TaskActive, timeout));
 }

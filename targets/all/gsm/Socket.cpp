@@ -21,7 +21,7 @@ async_def()
 async_end
 
 async(Socket::Disconnect, Timeout timeout)
-async_def()
+async_def_once()
 {
     Output().Close();
     flags |= SocketFlags::AppClose;
