@@ -122,6 +122,50 @@ async_def()
 }
 async_end
 
+async(SimComModem::Debug, FNV1a header)
+async_def_sync()
+{
+    MYDBG("Location: %s", header);
+    ATComplete(2);
+}
+async_end
+
+async(SimComModem::GetLocation)
+async_def(
+    Timeout timeout;
+)
+{
+    MYDBG("Acquering Location");
+    if(await(AT,"+CGATT=1")){
+        MYDBG("Location failed: Connect SIM to GPROS");
+        async_return(false);
+    }
+    if(await(AT,"+SAPBR=3,1,\"Contype\",\"GPRS\"")){
+        MYDBG("location failed: Activate bearer profile with connection type GPRS");
+        async_return(false);
+    }
+
+    if(await(AT,"+SAPBR=3,1,\"APN\",\"internet\"")){
+        MYDBG("Location failed: Set VPN for bearer Profile");
+        async_return(false);
+    }
+    if(await(AT,"+SAPBR=1,1")){
+        MYDBG("Location failed: 	Open Bearer profile");
+        async_return(false);
+    }
+
+    if (await(ATLock) ||
+        NextATResponse(GetDelegate(this, &SimComModem::Debug)) ||
+        await(AT, "+CLBS=1,1"))    // additional identification
+    {
+        MYDBG("Location failed: Request for location Pincode, latitude and longitude");
+        async_return(false);
+    }
+    MYDBG("Location returned");
+    async_return(true);
+}
+async_end
+
 async(SimComModem::SendPacketImpl, Socket& sock)
 async_def(
     SimComModem* self;
@@ -729,6 +773,7 @@ async_def(
         async_return(false);
     }
 
+    await(GetLocation);
     async_return(true);
 }
 async_end
