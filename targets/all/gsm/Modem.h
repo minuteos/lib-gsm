@@ -130,6 +130,8 @@ protected:
     //! @returns false so it can be easily chained between ATLock and ATXxx
     bool NextATTimeout(Timeout timeout) { ASSERT(atTask == &kernel::Task::Current()); atNextTimeout = timeout; return false; }
     //! Sets a callback for the next AT call, can be called only after ATLock
+    //! Also sets the requirements mask for next AT command. ATComplete must be
+    //! called with all mask bits before the command is considered complete.
     //! @returns false so it can be easily chained between ATLock and ATXxx
     bool NextATResponse(AsyncDelegate<FNV1a> handler, uint8_t mask = 1) { ASSERT(atTask == &kernel::Task::Current()); atResponse = handler; atRequire = mask; return false; }
     //! Sets the socket from which data will be transmitted during the AT command
@@ -138,8 +140,6 @@ protected:
     //! Sets the message which will be transmitted during the AT command
     //! @returns false so it can be easily chained between ATLock and ATXxx
     bool NextATTransmit(Message& msg) { ASSERT(atTask == &kernel::Task::Current()); atTransmitMsg = &msg; return false; }
-    //! Sets the requirements mask for next AT command. ATComplete must be called with all mask bits before the command is considered complete.
-    //! @returns false so it can be easily chained between ATLock and ATXxx
     //! Mark the specified requirement mask as complete
     void ATComplete(uint8_t mask = 1) { ASSERT(atResult == ATResult::Pending); if ((atComplete |= mask) == atRequire) { atResult = ATResult::OK; } }
 
