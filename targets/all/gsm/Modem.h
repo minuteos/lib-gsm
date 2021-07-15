@@ -54,6 +54,13 @@ enum struct TcpStatus
     ConnectionError,
 };
 
+struct Location
+{
+    int32_t lat = 0;
+    int32_t lon = 0;
+};
+
+
 class NetworkInfo
 {
     union
@@ -80,6 +87,8 @@ class Modem
 {
 public:
 
+    Location GsmLocation;
+    char lastKnownLocation[50];
     Modem(io::DuplexPipe pipe, ModemOptions& options)
         : rx(pipe), tx(pipe), options(options) {}
 
@@ -96,6 +105,7 @@ public:
 
     bool IsActive() const { return !!(signals & Signal::TaskActive); }
     bool IsDisconnecting() const { return !!(signals & Signal::NetworkDisconnecting); }
+    void RequestLocation();
 
     int Rssi() const { return rssi; }
 
@@ -165,6 +175,7 @@ protected:
     virtual bool TryAllocateImpl(Socket& sock) = 0;
     virtual async(ConnectImpl, Socket& sock) = 0;
     virtual async(SendPacketImpl, Socket& sock) = 0;
+    virtual async(GetLocation, Buffer& buff) = 0;
     virtual async(ReceivePacketImpl, Socket& sock) = 0;
     virtual async(CheckIncomingImpl, Socket& sock) = 0;
     virtual async(CloseImpl, Socket& sock) = 0;
@@ -238,6 +249,7 @@ private:
     size_t atTransmitLen;
     Socket* rxSock;
     size_t rxLen = 0;
+    bool requireLocation = 0;
 
     enum ModemStatus modemStatus = ModemStatus::Ok;
     enum GsmStatus gsmStatus = GsmStatus::Ok;
@@ -254,7 +266,8 @@ private:
     async(Task);
     async(RxTask);
     async(ATResponse);
-
+    
+    int ParseLocationToInt(Span data);
     void ReleaseSocket(Socket* sock);
     void DestroySocket(Socket* sock);
 
