@@ -419,7 +419,7 @@ async_def(
                 if(requireLocation){                        
                         f.buff = lastKnownLocation;
                         await(GetLocation, f.buff);
-                        Span location = Span("0,16.123456,43.654321,400");
+                        Span location = Span(lastKnownLocation);
                         Span code = location.Consume(',');
                         Span lat = location.Consume(',');
                         Span lon = location.Consume(',');

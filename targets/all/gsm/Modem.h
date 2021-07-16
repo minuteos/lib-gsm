@@ -56,8 +56,8 @@ enum struct TcpStatus
 
 struct Location
 {
-    int32_t lat = 0;
     int32_t lon = 0;
+    int32_t lat = 0;    
 };
 
 
