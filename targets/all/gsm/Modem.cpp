@@ -78,11 +78,8 @@ Socket* Modem::CreateSocket(Span host, uint32_t port, bool tls)
 void Modem::RequestLocation()
 {
     MYDBG("Requesting location");
-
     requireLocation = true;
     EnsureRunning();
-
-    MYDBG("Requested location");
     return;
 }
 
@@ -424,8 +421,10 @@ async_def(
                         Span lat = location.Consume(',');
                         Span lon = location.Consume(',');
                         Span acc = location.Consume(',');
-                        GsmLocation.lat = ParseLocationToInt(lat);
-                        GsmLocation.lon = ParseLocationToInt(lon);
+                        if(code == Span("0")){
+                            GsmLocation.lat = ParseLocationToInt(lat);
+                            GsmLocation.lon = ParseLocationToInt(lon);
+                        }
                 } 
 
                 signals = (signals & ~Signal::NetworkActive) | Signal::NetworkDisconnecting;   // disable further connections

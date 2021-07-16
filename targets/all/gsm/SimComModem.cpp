@@ -125,7 +125,6 @@ async_end
 
 async(SimComModem::GetLocation, Buffer& buff) 
 async_def(
-  // Span* locationReturn;
   Timeout timeout;
   SimComModem *self; 
   Buffer* buff;
@@ -139,45 +138,54 @@ async_def(
   async_end
   ) 
   {
-  f.self = this;
-  f.buff = &buff;
-  MYDBG("address of location in getLcoatuon is %p", buff);
-  MYDBG("Acquering Location");
-  if (await(AT, "+CGATT=1")) {
-    MYDBG("Location failed: Connect SIM to GPROS");
-    async_return(false);
-  }
-  if (await(AT, "+SAPBR=3,1,\"Contype\",\"GPRS\"")) {
-    MYDBG("location failed: Activate bearer profile with connection type GPRS");
-    async_return(false);
-  }
-
-  if (await(AT, "+SAPBR=3,1,\"APN\",\"internet\"")) {
-    MYDBG("Location failed: Set VPN for bearer Profile");
-    async_return(false);
-  }
-  if (await(AT, "+SAPBR=1,1")) {
-    MYDBG("Location failed: 	Open Bearer profile");
-    async_return(false);
-  }
-
-   if (await(ATLock)) {
-      async_return(false);
+    if(model == Model::SIM7600)
+    {
+        MYDBG("Location for SIM760 is not supported yet");
+        async_return(false);
     }
 
-  NextATResponse(GetDelegate(&f, &__FRAME::ReturnLocation));
-  if (!await(AT, "+CLBS=1,1")) // additional identification
-  {
-    MYDBG("Location failed: Request for location Pincode, latitude and "
-          "longitude");
-    async_return(false);
-  }
+    f.self = this;
+    f.buff = &buff;
+    if (await(AT, "+CGATT=1")) 
+    {
+        MYDBG("Location failed: Connect SIM to GPROS");
+        async_return(false);
+    }
+    if (await(AT, "+SAPBR=3,1,\"Contype\",\"GPRS\"")) 
+    {
+        MYDBG("location failed: Activate bearer profile with connection type GPRS");
+        async_return(false);
+    }
 
-  if (await(ATLock)) {
-      async_return(false);
-  }
-  MYDBG("Location returned");
-  async_return(true);
+    if (await(AT, "+SAPBR=3,1,\"APN\",\"internet\"")) 
+    {
+        MYDBG("Location failed: Set VPN for bearer Profile");
+        async_return(false);
+    }
+    if (await(AT, "+SAPBR=1,1")) 
+    {
+        MYDBG("Location failed: 	Open Bearer profile");
+        async_return(false);
+    }
+
+    if (await(ATLock)) 
+    {
+        async_return(false);
+    }
+
+    NextATResponse(GetDelegate(&f, &__FRAME::ReturnLocation));
+    if (!await(AT, "+CLBS=1,1"))
+    {
+        MYDBG("Location failed: Request for location Pincode, latitude and "
+            "longitude");
+        async_return(false);
+    }
+
+    if (await(ATLock)) 
+    {
+        async_return(false);
+    }
+    async_return(true); 
 }
 async_end
 
