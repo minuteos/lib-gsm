@@ -795,7 +795,7 @@ async_def(
         TcpStatus(TcpStatus::GprsError);
         async_return(false);
     }
-    
+
     async_return(true);
 }
 async_end

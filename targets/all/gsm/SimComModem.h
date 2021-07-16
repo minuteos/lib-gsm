@@ -143,7 +143,6 @@ private:
     async(OnReceiveNetCch, FNV1a header);
     async(OnReceiveShutOK, FNV1a header);
     async(OnReceivePowerDown, FNV1a header);
-
 };
 
 }
