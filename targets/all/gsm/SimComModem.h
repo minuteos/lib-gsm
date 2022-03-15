@@ -68,6 +68,7 @@ protected:
     virtual async(ReceivePacketImpl, Socket& sock) final override;
     virtual async(CheckIncomingImpl, Socket& sock) final override;
     virtual async(CloseImpl, Socket& sock) final override;
+    virtual async(GetLocation, Buffer& buff) final override;
 
     virtual async(SendMessageImpl, Message& msg) final override;
 

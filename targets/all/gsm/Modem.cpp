@@ -75,6 +75,49 @@ Socket* Modem::CreateSocket(Span host, uint32_t port, bool tls)
     return sock;
 }
 
+void Modem::RequestLocation()
+{
+    MYDBG("Requesting location");
+    requireLocation = true;
+    EnsureRunning();
+    return;
+}
+
+int Modem::ParseLocationToInt(Span s)
+{
+    const char* data = s;
+    const char* end = s.end();
+    int base = 10;
+
+    while (data < end && isspace(*data))
+        data++;
+
+    bool neg = false;
+
+    if (data < end && (*data == '+' || (neg = *data == '-')))
+        data++;
+   
+    int res = 0;
+    while (data < end)
+    {
+        char c = *data;
+        size_t digit;
+        if (c >= '0' && c <= '9')
+            digit = c - '0';
+        else if (c == '.')
+        {
+            data++;
+            continue;
+        }
+        else
+            break;
+
+        res = res * base + digit;
+        data++;
+    }
+    return neg ? -res : res;
+}
+
 Message* Modem::SendMessage(Span recipient, Span text)
 {
     auto size = MessageSizeImpl();
@@ -161,6 +204,7 @@ async(Modem::Task)
 async_def(
     union { Socket* s; Message* m; };
     union { Socket* next; Message* mNext; };
+    Buffer buff;
 )
 {
     // we may not need to run, preprocess sockets to find if there is an active one
@@ -368,6 +412,20 @@ async_def(
                         async_yield();
                     }
                 }
+
+                if(requireLocation){                        
+                        f.buff = lastKnownLocation;
+                        await(GetLocation, f.buff);
+                        Span location = Span(lastKnownLocation);
+                        Span code = location.Consume(',');
+                        Span lat = location.Consume(',');
+                        Span lon = location.Consume(',');
+                        Span acc = location.Consume(',');
+                        if(code == Span("0")){
+                            GsmLocation.lat = ParseLocationToInt(lat);
+                            GsmLocation.lon = ParseLocationToInt(lon);
+                        }
+                } 
 
                 signals = (signals & ~Signal::NetworkActive) | Signal::NetworkDisconnecting;   // disable further connections
                 await(DisconnectNetworkImpl);
